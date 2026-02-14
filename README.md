@@ -2,6 +2,8 @@
 
 Interactive TUI for managing git worktrees with GitHub PR status enrichment.
 
+![gwtui screenshot](assets/screenshot.png)
+
 ## Features
 
 - Lists all git worktrees with color-coded PR status (open / draft / merged / closed / no PR)
