@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
 	"github.com/plinde/gwtui/internal/cli"
@@ -33,7 +34,7 @@ func main() {
 				}
 				repoPath = p
 			}
-			if noTUI {
+			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
 				return cli.Print(repoPath)
 			}
 			return tui.Run(repoPath)
