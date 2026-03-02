@@ -8,11 +8,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plinde/gwtui/internal/cli"
 	"github.com/plinde/gwtui/internal/tui"
 )
 
 func main() {
 	var repoPath string
+	var noTUI bool
 
 	rootCmd := &cobra.Command{
 		Use:   "gwtui [path]",
@@ -31,11 +33,15 @@ func main() {
 				}
 				repoPath = p
 			}
+			if noTUI {
+				return cli.Print(repoPath)
+			}
 			return tui.Run(repoPath)
 		},
 	}
 
 	rootCmd.Flags().StringVar(&repoPath, "repo", "", "path to git repository (default: current repo)")
+	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

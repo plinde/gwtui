@@ -12,6 +12,7 @@ type keyMap struct {
 	Enter   key.Binding
 	Help    key.Binding
 	Back    key.Binding
+	Refresh key.Binding
 	Quit    key.Binding
 }
 
@@ -52,6 +53,10 @@ func defaultKeyMap() keyMap {
 		Back: key.NewBinding(
 			key.WithKeys("backspace", "delete", "ctrl+h"),
 			key.WithHelp("backspace", "back"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "refresh"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
