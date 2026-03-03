@@ -153,6 +153,9 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedCount() > 0 {
 				m.phase = phaseConfirm
 			}
+		case key.Matches(msg, m.keys.Refresh):
+			m.phase = phaseLoad
+			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
 		case key.Matches(msg, m.keys.Help):
 			m.prevPhase = phaseList
 			m.phase = phaseHelp
@@ -176,8 +179,11 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
-		if key.Matches(msg, m.keys.Enter) {
-			return m, tea.Quit
+		if key.Matches(msg, m.keys.Enter) || key.Matches(msg, m.keys.Back) {
+			m.results = nil
+			m.loadErr = nil
+			m.phase = phaseLoad
+			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
 		}
 	}
 	return m, nil
@@ -261,7 +267,7 @@ func (m model) viewList() string {
 
 	b.WriteString("\n")
 	b.WriteString("  " + m.viewFooter() + "\n")
-	b.WriteString("  " + helpStyle.Render("[space] toggle  [a]ll  [n]one  [tab] cleanup  [?] help  [q]uit") + "\n")
+	b.WriteString("  " + helpStyle.Render("[space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [?] help  [q]uit") + "\n")
 
 	return b.String()
 }
@@ -354,7 +360,7 @@ func (m model) viewDone() string {
 	}
 	b.WriteString("  " + dimStyle.Render(summary) + "\n")
 	b.WriteString("\n")
-	b.WriteString("  " + helpStyle.Render("[enter] quit  [q] quit") + "\n")
+	b.WriteString("  " + helpStyle.Render("[enter] back to list  [q] quit") + "\n")
 
 	return b.String()
 }
@@ -379,7 +385,8 @@ func (m model) viewHelp() string {
 
 	b.WriteString("  " + helpSectionStyle.Render("Actions") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("tab") + "         " + helpDescStyle.Render("Proceed to cleanup confirmation") + "\n")
-	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Confirm cleanup / quit") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Confirm cleanup / back to list") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("r") + "           " + helpDescStyle.Render("Refresh worktrees and PR status") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("backspace") + "   " + helpDescStyle.Render("Go back") + "\n")
 	b.WriteString("\n")
 
