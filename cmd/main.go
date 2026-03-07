@@ -13,14 +13,17 @@ import (
 	"github.com/plinde/gwtui/internal/tui"
 )
 
+var version = "dev"
+
 func main() {
 	var repoPath string
 	var noTUI bool
 
 	rootCmd := &cobra.Command{
-		Use:   "gwtui [path]",
-		Short: "Git Worktree TUI Manager",
-		Long:  "Interactive TUI for managing git worktrees with GitHub PR status enrichment.",
+		Use:     "gwtui [path]",
+		Short:   "Git Worktree TUI Manager",
+		Long:    "Interactive TUI for managing git worktrees with GitHub PR status enrichment.",
+		Version: version,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
