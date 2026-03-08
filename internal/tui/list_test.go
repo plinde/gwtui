@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/plinde/gwtui/internal/git"
@@ -215,5 +217,241 @@ func TestColumnWidths_DetachedBranch(t *testing.T) {
 	// "(detached)" = 10 chars
 	if maxBranch != 10 {
 		t.Errorf("expected maxBranch=10 for detached, got %d", maxBranch)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CompressPath tests
+// ---------------------------------------------------------------------------
+
+func TestCompressPath_HomeDirRoot(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	got := CompressPath(home)
+	if got != "~" {
+		t.Errorf("CompressPath(%q) = %q, want %q", home, got, "~")
+	}
+}
+
+func TestCompressPath_ShortPathUnderHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	// 4 segments: ~, a, b, c → should NOT be compressed further
+	p := home + "/a/b/c"
+	got := CompressPath(p)
+	if got != "~/a/b/c" {
+		t.Errorf("CompressPath(%q) = %q, want %q", p, got, "~/a/b/c")
+	}
+}
+
+func TestCompressPath_LongPathUnderHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	// 6 segments: ~, workspace, github.com, org, repo → >4 segments, compressed
+	p := home + "/workspace/github.com/org/repo"
+	got := CompressPath(p)
+	if got != "~/...repo" {
+		t.Errorf("CompressPath(%q) = %q, want %q", p, got, "~/...repo")
+	}
+}
+
+func TestCompressPath_NotUnderHome(t *testing.T) {
+	p := "/tmp/some/path"
+	got := CompressPath(p)
+	if got != "/tmp/some/path" {
+		t.Errorf("CompressPath(%q) = %q, want unchanged", p, got)
+	}
+}
+
+func TestCompressPath_EmptyString(t *testing.T) {
+	got := CompressPath("")
+	if got != "" {
+		t.Errorf("CompressPath(%q) = %q, want empty", "", got)
+	}
+}
+
+func TestCompressPath_RootPath(t *testing.T) {
+	got := CompressPath("/")
+	if got != "/" {
+		t.Errorf("CompressPath(%q) = %q, want %q", "/", got, "/")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RenderRow tests
+// ---------------------------------------------------------------------------
+
+func TestRenderRow_WithCursor(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/repo--feat", Branch: "feat"},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, true, 10, 10)
+	if !strings.Contains(out, "▸") {
+		t.Error("expected cursor marker '▸' when isCursor=true")
+	}
+}
+
+func TestRenderRow_NoCursor(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/repo--feat", Branch: "feat"},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if strings.Contains(out, "▸") {
+		t.Error("expected no cursor marker '▸' when isCursor=false")
+	}
+}
+
+func TestRenderRow_SelectedCleanable(t *testing.T) {
+	row := WorktreeRow{
+		Worktree:  git.Worktree{Path: "/repo--feat", Branch: "feat"},
+		State:     StateMerged,
+		PR:        &gh.PR{Number: 1, State: "MERGED"},
+		Cleanable: true,
+		Selected:  true,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if !strings.Contains(out, "[x]") {
+		t.Errorf("expected '[x]' for selected cleanable row, got %q", out)
+	}
+}
+
+func TestRenderRow_UnselectedCleanable(t *testing.T) {
+	row := WorktreeRow{
+		Worktree:  git.Worktree{Path: "/repo--feat", Branch: "feat"},
+		State:     StateMerged,
+		PR:        &gh.PR{Number: 1, State: "MERGED"},
+		Cleanable: true,
+		Selected:  false,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if !strings.Contains(out, "[ ]") {
+		t.Errorf("expected '[ ]' for unselected cleanable row, got %q", out)
+	}
+}
+
+func TestRenderRow_NonCleanable(t *testing.T) {
+	row := WorktreeRow{
+		Worktree:  git.Worktree{Path: "/repo", Branch: "main"},
+		State:     StateMain,
+		Cleanable: false,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if strings.Contains(out, "[x]") || strings.Contains(out, "[ ]") {
+		t.Errorf("expected no checkbox for non-cleanable row, got %q", out)
+	}
+}
+
+func TestRenderRow_DetachedHEAD(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/repo--detach", Branch: ""},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if !strings.Contains(out, "(detached)") {
+		t.Errorf("expected '(detached)' for empty branch, got %q", out)
+	}
+}
+
+func TestRenderRow_BranchNameAppears(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/repo--my-feature", Branch: "my-feature"},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, false, 20, 10)
+	if !strings.Contains(out, "my-feature") {
+		t.Errorf("expected branch name 'my-feature' in output, got %q", out)
+	}
+}
+
+func TestRenderRow_PathAppears(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/tmp/repo--feat", Branch: "feat"},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if !strings.Contains(out, "/tmp/repo--feat") {
+		t.Errorf("expected path '/tmp/repo--feat' in output, got %q", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EnrichWorktrees edge cases
+// ---------------------------------------------------------------------------
+
+func TestEnrichWorktrees_EmptyList(t *testing.T) {
+	rows := EnrichWorktrees(nil, map[string]*gh.PR{})
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows for empty input, got %d", len(rows))
+	}
+}
+
+func TestEnrichWorktrees_NilPRMap(t *testing.T) {
+	wts := []git.Worktree{
+		{Path: "/repo", Branch: "main", IsMain: true},
+		{Path: "/repo--feat", Branch: "feat"},
+	}
+	rows := EnrichWorktrees(wts, nil)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].State != StateMain {
+		t.Errorf("row 0: expected StateMain, got %s", rows[0].State)
+	}
+	if rows[1].State != StateNoPR {
+		t.Errorf("row 1: expected StateNoPR, got %s", rows[1].State)
+	}
+}
+
+func TestEnrichWorktrees_DetachedHEAD(t *testing.T) {
+	wts := []git.Worktree{
+		{Path: "/repo--detach", Branch: ""},
+	}
+	prs := map[string]*gh.PR{
+		"some-branch": {Number: 99, State: "OPEN", HeadRef: "some-branch"},
+	}
+	rows := EnrichWorktrees(wts, prs)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	// Empty branch won't match any PR key
+	if rows[0].State != StateNoPR {
+		t.Errorf("expected StateNoPR for detached HEAD, got %s", rows[0].State)
+	}
+	if rows[0].PR != nil {
+		t.Error("expected PR to be nil for detached HEAD")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ColumnWidths edge cases
+// ---------------------------------------------------------------------------
+
+func TestColumnWidths_EmptyRows(t *testing.T) {
+	maxBranch, maxStatus := ColumnWidths(nil)
+	if maxBranch != 0 {
+		t.Errorf("expected maxBranch=0 for empty rows, got %d", maxBranch)
+	}
+	if maxStatus != 0 {
+		t.Errorf("expected maxStatus=0 for empty rows, got %d", maxStatus)
+	}
+}
+
+func TestColumnWidths_VeryLongBranchName(t *testing.T) {
+	longBranch := "feature/this-is-an-extremely-long-branch-name-for-testing"
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{Branch: "short"}, State: StateNoPR},
+		{Worktree: git.Worktree{Branch: longBranch}, State: StateNoPR},
+	}
+	maxBranch, _ := ColumnWidths(rows)
+	if maxBranch != len(longBranch) {
+		t.Errorf("expected maxBranch=%d, got %d", len(longBranch), maxBranch)
 	}
 }

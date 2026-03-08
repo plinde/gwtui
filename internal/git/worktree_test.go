@@ -185,6 +185,92 @@ branch refs/heads/main
 	}
 }
 
+func TestParsePorcelain_WindowsLineEndings(t *testing.T) {
+	// Simulate \r\n line endings in porcelain output
+	output := "worktree /home/user/repo\r\nHEAD abc12345deadbeef\r\nbranch refs/heads/main\r\n\r\nworktree /home/user/repo--feat\r\nHEAD 1234abcd5678efgh\r\nbranch refs/heads/feat\r\n\r\n"
+
+	wts, err := parsePorcelainWithDefault(output, "/home/user/repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(wts) != 2 {
+		t.Fatalf("expected 2 worktrees, got %d", len(wts))
+	}
+	if wts[0].Path != "/home/user/repo" {
+		t.Errorf("expected path /home/user/repo, got %q", wts[0].Path)
+	}
+	if wts[0].Branch != "main" {
+		t.Errorf("expected branch main, got %q", wts[0].Branch)
+	}
+	if wts[1].Branch != "feat" {
+		t.Errorf("expected branch feat, got %q", wts[1].Branch)
+	}
+}
+
+func TestParsePorcelain_VeryLongSHA(t *testing.T) {
+	// 64-character SHA (longer than standard 40-char) should be truncated to 8
+	longSHA := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	output := "worktree /repo\nHEAD " + longSHA + "\nbranch refs/heads/main\n\n"
+
+	wts, err := parsePorcelainWithDefault(output, "/repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(wts) != 1 {
+		t.Fatalf("expected 1 worktree, got %d", len(wts))
+	}
+	if wts[0].CommitSHA != "abcdef12" {
+		t.Errorf("expected SHA truncated to 'abcdef12', got %q (len %d)", wts[0].CommitSHA, len(wts[0].CommitSHA))
+	}
+}
+
+func TestParsePorcelain_VeryShortSHA(t *testing.T) {
+	// SHA shorter than 8 chars should be kept as-is (no padding)
+	output := `worktree /repo
+HEAD abc
+branch refs/heads/main
+
+`
+	wts, err := parsePorcelainWithDefault(output, "/repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wts[0].CommitSHA != "abc" {
+		t.Errorf("expected SHA 'abc' (kept as-is), got %q", wts[0].CommitSHA)
+	}
+}
+
+func TestParsePorcelain_MissingHEADLine(t *testing.T) {
+	// Worktree block without a HEAD line should have empty CommitSHA
+	output := `worktree /repo
+branch refs/heads/main
+
+worktree /repo--feat
+branch refs/heads/feat
+
+`
+	wts, err := parsePorcelainWithDefault(output, "/repo", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(wts) != 2 {
+		t.Fatalf("expected 2 worktrees, got %d", len(wts))
+	}
+	if wts[0].CommitSHA != "" {
+		t.Errorf("expected empty CommitSHA for worktree without HEAD line, got %q", wts[0].CommitSHA)
+	}
+	if wts[1].CommitSHA != "" {
+		t.Errorf("expected empty CommitSHA for second worktree without HEAD line, got %q", wts[1].CommitSHA)
+	}
+	// Branch should still parse correctly
+	if wts[0].Branch != "main" {
+		t.Errorf("expected branch main, got %q", wts[0].Branch)
+	}
+	if wts[1].Branch != "feat" {
+		t.Errorf("expected branch feat, got %q", wts[1].Branch)
+	}
+}
+
 // parsePorcelainWithDefault is a test helper that calls parsePorcelain
 // but patches the default branch detection (which shells out to git).
 // We extract the IsMain logic here to avoid exec in tests.
