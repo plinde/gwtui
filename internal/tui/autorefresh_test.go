@@ -1,0 +1,262 @@
+package tui
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/charmbracelet/bubbles/spinner"
+
+	"github.com/plinde/gwtui/internal/git"
+	gh "github.com/plinde/gwtui/internal/github"
+)
+
+// testModel returns a model in phaseList with a standard set of rows.
+func testModel() model {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{Path: "/repo", Branch: "main", IsMain: true}, State: StateMain, Cleanable: false},
+		{Worktree: git.Worktree{Path: "/repo--a", Branch: "a"}, State: StateMerged, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--c", Branch: "c"}, State: StateActive, Cleanable: false},
+	}
+	return model{
+		phase:     phaseList,
+		repoPath:  "/repo",
+		keys:      defaultKeyMap(),
+		spinner:   spinner.New(),
+		rows:      rows,
+		cursor:    1,
+		maxBranch: 4,
+		maxStatus: 5,
+		width:     80,
+		height:    24,
+	}
+}
+
+// ---------- scheduleAutoRefresh / doAutoRefresh ----------
+
+func TestScheduleAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
+	cmd := scheduleAutoRefresh()
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from scheduleAutoRefresh")
+	}
+}
+
+func TestDoAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
+	cmd := doAutoRefresh("/tmp/fakerepo")
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from doAutoRefresh")
+	}
+}
+
+// ---------- autoRefreshTickMsg ----------
+
+func TestAutoRefreshTickMsg_InListPhase(t *testing.T) {
+	m := testModel()
+
+	updated, cmd := m.Update(autoRefreshTickMsg{})
+	um := updated.(model)
+
+	if um.phase != phaseList {
+		t.Errorf("expected phase to stay phaseList, got %d", um.phase)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (doAutoRefresh) when in phaseList")
+	}
+}
+
+func TestAutoRefreshTickMsg_InOtherPhase(t *testing.T) {
+	for _, ph := range []phase{phaseLoad, phaseConfirm, phaseCleanup, phaseDone, phaseHelp} {
+		m := testModel()
+		m.phase = ph
+
+		updated, cmd := m.Update(autoRefreshTickMsg{})
+		um := updated.(model)
+
+		if um.phase != ph {
+			t.Errorf("phase %d: expected phase unchanged, got %d", ph, um.phase)
+		}
+		if cmd == nil {
+			t.Errorf("phase %d: expected non-nil cmd (reschedule tick)", ph)
+		}
+	}
+}
+
+// ---------- autoRefreshDoneMsg ----------
+
+func TestAutoRefreshDoneMsg_PreservesSelections(t *testing.T) {
+	m := testModel()
+	m.rows[1].Selected = true // branch "a"
+	m.rows[2].Selected = true // branch "b"
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{
+			{Path: "/repo", Branch: "main", IsMain: true},
+			{Path: "/repo--a", Branch: "a"},
+			{Path: "/repo--b", Branch: "b"},
+			{Path: "/repo--c", Branch: "c"},
+		},
+		prs: map[string]*gh.PR{},
+	}
+
+	updated, cmd := m.Update(msg)
+	um := updated.(model)
+
+	if um.phase != phaseList {
+		t.Errorf("expected phaseList, got %d", um.phase)
+	}
+	for _, r := range um.rows {
+		switch r.Worktree.Branch {
+		case "a", "b":
+			if !r.Selected {
+				t.Errorf("branch %q should still be selected", r.Worktree.Branch)
+			}
+		default:
+			if r.Selected {
+				t.Errorf("branch %q should not be selected", r.Worktree.Branch)
+			}
+		}
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (reschedule)")
+	}
+}
+
+func TestAutoRefreshDoneMsg_ClampsCursor(t *testing.T) {
+	m := testModel()
+	m.cursor = 3 // last row (index 3 of 4)
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{
+			{Path: "/repo", Branch: "main", IsMain: true},
+			{Path: "/repo--a", Branch: "a"},
+		},
+		prs: map[string]*gh.PR{},
+	}
+
+	updated, _ := m.Update(msg)
+	um := updated.(model)
+
+	if um.cursor >= len(um.rows) {
+		t.Errorf("cursor %d out of bounds for %d rows", um.cursor, len(um.rows))
+	}
+	if um.cursor != 1 {
+		t.Errorf("expected cursor clamped to 1, got %d", um.cursor)
+	}
+}
+
+func TestAutoRefreshDoneMsg_WrongPhase(t *testing.T) {
+	m := testModel()
+	m.phase = phaseConfirm
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{
+			{Path: "/repo", Branch: "main", IsMain: true},
+		},
+		prs: map[string]*gh.PR{},
+	}
+
+	updated, cmd := m.Update(msg)
+	um := updated.(model)
+
+	if um.phase != phaseConfirm {
+		t.Errorf("expected phase unchanged (phaseConfirm), got %d", um.phase)
+	}
+	if len(um.rows) != 4 {
+		t.Errorf("expected rows unchanged (4), got %d", len(um.rows))
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (reschedule)")
+	}
+}
+
+func TestAutoRefreshDoneMsg_Error(t *testing.T) {
+	m := testModel()
+
+	msg := autoRefreshDoneMsg{err: errors.New("network error")}
+
+	updated, cmd := m.Update(msg)
+	um := updated.(model)
+
+	if um.phase != phaseList {
+		t.Errorf("expected phaseList on error, got %d", um.phase)
+	}
+	if len(um.rows) != 4 {
+		t.Errorf("expected rows unchanged (4), got %d", len(um.rows))
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (reschedule)")
+	}
+}
+
+func TestAutoRefreshDoneMsg_EmptyList(t *testing.T) {
+	m := testModel()
+	m.cursor = 2
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{},
+		prs:       map[string]*gh.PR{},
+	}
+
+	updated, _ := m.Update(msg)
+	um := updated.(model)
+
+	if len(um.rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(um.rows))
+	}
+	if um.cursor != 0 {
+		t.Errorf("expected cursor clamped to 0, got %d", um.cursor)
+	}
+}
+
+// ---------- handleLoadDone reschedules ----------
+
+func TestHandleLoadDone_ReschedulesAutoRefresh(t *testing.T) {
+	m := model{
+		phase:    phaseLoad,
+		repoPath: "/repo",
+		keys:     defaultKeyMap(),
+		spinner:  spinner.New(),
+	}
+
+	wts := []git.Worktree{
+		{Path: "/repo", Branch: "main", IsMain: true},
+	}
+	msg := loadDoneMsg{worktrees: wts, prs: map[string]*gh.PR{}}
+
+	_, cmd := m.Update(msg)
+	if cmd == nil {
+		t.Error("expected non-nil cmd (scheduleAutoRefresh) after loadDone")
+	}
+}
+
+func TestHandleLoadDone_Error_ReschedulesAutoRefresh(t *testing.T) {
+	m := model{
+		phase:    phaseLoad,
+		repoPath: "/repo",
+		keys:     defaultKeyMap(),
+		spinner:  spinner.New(),
+	}
+
+	msg := loadDoneMsg{err: errors.New("fail")}
+
+	_, cmd := m.Update(msg)
+	if cmd == nil {
+		t.Error("expected non-nil cmd (scheduleAutoRefresh) even on error")
+	}
+}
+
+// ---------- Init includes auto-refresh ----------
+
+func TestInit_IncludesAutoRefresh(t *testing.T) {
+	m := model{
+		repoPath: "/repo",
+		spinner:  spinner.New(),
+	}
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from Init()")
+	}
+	// Init returns tea.Batch of 3 commands (spinner.Tick, doLoad, scheduleAutoRefresh)
+	// We can't easily inspect the batch, but verify it's non-nil
+}
