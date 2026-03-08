@@ -119,6 +119,18 @@ func doAutoRefresh(repoPath string) tea.Cmd {
 	}
 }
 
+const doneCountdownSeconds = 5
+
+// doneCountdownTickMsg fires every second while on the done screen.
+type doneCountdownTickMsg struct{}
+
+// scheduleDoneCountdown ticks once per second for the done-screen countdown.
+func scheduleDoneCountdown() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return doneCountdownTickMsg{}
+	})
+}
+
 // doCleanup executes worktree removals sequentially.
 func doCleanup(repoPath string, rows []WorktreeRow) tea.Cmd {
 	return func() tea.Msg {

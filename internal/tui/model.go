@@ -36,8 +36,9 @@ type model struct {
 	maxBranch int
 	maxStatus int
 
-	results []git.CleanupResult
-	loadErr error
+	results       []git.CleanupResult
+	loadErr       error
+	doneCountdown int
 
 	width  int
 	height int
@@ -94,7 +95,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cleanupDoneMsg:
 		m.results = msg.results
 		m.phase = phaseDone
+		if len(m.results) > 0 {
+			m.doneCountdown = doneCountdownSeconds
+			return m, scheduleDoneCountdown()
+		}
 		return m, nil
+
+	case doneCountdownTickMsg:
+		return m.handleDoneCountdownTick()
 	}
 
 	switch m.phase {
@@ -237,13 +245,30 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		if key.Matches(msg, m.keys.Enter) || key.Matches(msg, m.keys.Back) {
-			m.results = nil
-			m.loadErr = nil
-			m.phase = phaseLoad
-			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+			return m.returnToList()
 		}
 	}
 	return m, nil
+}
+
+func (m model) handleDoneCountdownTick() (tea.Model, tea.Cmd) {
+	if m.phase != phaseDone {
+		return m, nil
+	}
+	m.doneCountdown--
+	if m.doneCountdown <= 0 {
+		return m.returnToList()
+	}
+	return m, scheduleDoneCountdown()
+}
+
+// returnToList resets done-screen state and transitions to loading.
+func (m model) returnToList() (tea.Model, tea.Cmd) {
+	m.results = nil
+	m.loadErr = nil
+	m.doneCountdown = 0
+	m.phase = phaseLoad
+	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
 }
 
 func (m model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -417,7 +442,11 @@ func (m model) viewDone() string {
 	}
 	b.WriteString("  " + dimStyle.Render(summary) + "\n")
 	b.WriteString("\n")
-	b.WriteString("  " + helpStyle.Render("[enter] back to list  [q] quit") + "\n")
+	if m.doneCountdown > 0 {
+		b.WriteString("  " + helpStyle.Render(fmt.Sprintf("[enter] back to list (%ds)  [q] quit", m.doneCountdown)) + "\n")
+	} else {
+		b.WriteString("  " + helpStyle.Render("[enter] back to list  [q] quit") + "\n")
+	}
 
 	return b.String()
 }

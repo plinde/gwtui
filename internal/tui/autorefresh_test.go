@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/plinde/gwtui/internal/git"
 	gh "github.com/plinde/gwtui/internal/github"
@@ -259,4 +260,125 @@ func TestInit_IncludesAutoRefresh(t *testing.T) {
 	}
 	// Init returns tea.Batch of 3 commands (spinner.Tick, doLoad, scheduleAutoRefresh)
 	// We can't easily inspect the batch, but verify it's non-nil
+}
+
+// ---------- Done-screen countdown ----------
+
+func TestCleanupDone_StartsCountdown(t *testing.T) {
+	m := testModel()
+	m.phase = phaseCleanup
+
+	results := []git.CleanupResult{
+		{Worktree: git.Worktree{Branch: "a"}, Success: true},
+	}
+	msg := cleanupDoneMsg{results: results}
+
+	updated, cmd := m.Update(msg)
+	um := updated.(model)
+
+	if um.phase != phaseDone {
+		t.Errorf("expected phaseDone, got %d", um.phase)
+	}
+	if um.doneCountdown != doneCountdownSeconds {
+		t.Errorf("expected doneCountdown=%d, got %d", doneCountdownSeconds, um.doneCountdown)
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (scheduleDoneCountdown)")
+	}
+}
+
+func TestCleanupDone_EmptyResults_NoCountdown(t *testing.T) {
+	m := testModel()
+	m.phase = phaseCleanup
+
+	msg := cleanupDoneMsg{results: nil}
+
+	updated, cmd := m.Update(msg)
+	um := updated.(model)
+
+	if um.doneCountdown != 0 {
+		t.Errorf("expected no countdown with empty results, got %d", um.doneCountdown)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd with no results")
+	}
+}
+
+func TestDoneCountdownTick_Decrements(t *testing.T) {
+	m := testModel()
+	m.phase = phaseDone
+	m.doneCountdown = 3
+
+	updated, cmd := m.Update(doneCountdownTickMsg{})
+	um := updated.(model)
+
+	if um.doneCountdown != 2 {
+		t.Errorf("expected countdown=2, got %d", um.doneCountdown)
+	}
+	if um.phase != phaseDone {
+		t.Errorf("expected still in phaseDone, got %d", um.phase)
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (next tick)")
+	}
+}
+
+func TestDoneCountdownTick_ReachesZero_ReturnsToLoad(t *testing.T) {
+	m := testModel()
+	m.phase = phaseDone
+	m.doneCountdown = 1
+	m.results = []git.CleanupResult{{Worktree: git.Worktree{Branch: "a"}, Success: true}}
+
+	updated, cmd := m.Update(doneCountdownTickMsg{})
+	um := updated.(model)
+
+	if um.phase != phaseLoad {
+		t.Errorf("expected phaseLoad after countdown expires, got %d", um.phase)
+	}
+	if um.doneCountdown != 0 {
+		t.Errorf("expected countdown=0, got %d", um.doneCountdown)
+	}
+	if um.results != nil {
+		t.Error("expected results cleared")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (reload)")
+	}
+}
+
+func TestDoneCountdownTick_WrongPhase_Ignored(t *testing.T) {
+	m := testModel()
+	m.phase = phaseList
+	m.doneCountdown = 3
+
+	updated, cmd := m.Update(doneCountdownTickMsg{})
+	um := updated.(model)
+
+	// Should not decrement or transition
+	if um.doneCountdown != 3 {
+		t.Errorf("expected countdown unchanged at 3, got %d", um.doneCountdown)
+	}
+	if cmd != nil {
+		t.Errorf("expected nil cmd when not in phaseDone")
+	}
+}
+
+func TestDoneEnter_CancelsCountdown(t *testing.T) {
+	m := testModel()
+	m.phase = phaseDone
+	m.doneCountdown = 4
+	m.results = []git.CleanupResult{{Worktree: git.Worktree{Branch: "a"}, Success: true}}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(model)
+
+	if um.phase != phaseLoad {
+		t.Errorf("expected phaseLoad after enter, got %d", um.phase)
+	}
+	if um.doneCountdown != 0 {
+		t.Errorf("expected countdown reset to 0, got %d", um.doneCountdown)
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (reload)")
+	}
 }
