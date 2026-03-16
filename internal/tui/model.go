@@ -31,10 +31,13 @@ type model struct {
 	keys     keyMap
 	spinner  spinner.Model
 
-	rows      []WorktreeRow
-	cursor    int
-	maxBranch int
-	maxStatus int
+	rows         []WorktreeRow
+	unsortedRows []WorktreeRow // original order for SortNone restore
+	cursor       int
+	maxBranch    int
+	maxStatus    int
+	sortCol      SortColumn
+	sortDir      SortDirection
 
 	results []git.CleanupResult
 	loadErr error
@@ -111,7 +114,13 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 		m.phase = phaseDone
 		return m, nil
 	}
-	m.rows = EnrichWorktrees(msg.worktrees, msg.prs)
+	m.unsortedRows = EnrichWorktrees(msg.worktrees, msg.prs)
+	if m.sortCol != SortNone {
+		m.rows = sortRows(m.unsortedRows, m.sortCol, m.sortDir)
+	} else {
+		m.rows = make([]WorktreeRow, len(m.unsortedRows))
+		copy(m.rows, m.unsortedRows)
+	}
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 	m.phase = phaseList
 	// Start cursor on the first cleanable row
@@ -156,6 +165,12 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			m.phase = phaseLoad
 			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+		case key.Matches(msg, m.keys.SortNext):
+			m = m.advanceSort(nextSortColumn)
+		case key.Matches(msg, m.keys.SortPrev):
+			m = m.advanceSort(prevSortColumn)
+		case key.Matches(msg, m.keys.SortToggle):
+			m = m.toggleSortDir()
 		case key.Matches(msg, m.keys.Help):
 			m.prevPhase = phaseList
 			m.phase = phaseHelp
@@ -226,10 +241,10 @@ func (m model) viewList() string {
 	b.WriteString("\n")
 	b.WriteString("  " + titleStyle.Render("gwtui") + " — Git Worktree Manager\n")
 	b.WriteString("  " + pathStyle.Render(displayPath(m.repoPath)) + "\n")
-	b.WriteString("\n")
+	b.WriteString("  " + renderHeader(m.sortCol, m.sortDir, m.maxBranch, m.maxStatus) + "\n")
 
 	// Calculate visible area
-	headerLines := 4
+	headerLines := 5
 	footerLines := 3
 	available := m.height - headerLines - footerLines
 	if available < 1 {
@@ -267,7 +282,7 @@ func (m model) viewList() string {
 
 	b.WriteString("\n")
 	b.WriteString("  " + m.viewFooter() + "\n")
-	b.WriteString("  " + helpStyle.Render("[space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [?] help  [q]uit") + "\n")
+	b.WriteString("  " + helpStyle.Render("[space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [?] help  [q]uit") + "\n")
 
 	return b.String()
 }
@@ -383,6 +398,12 @@ func (m model) viewHelp() string {
 	b.WriteString("  " + helpKeyStyle.Render("n") + "           " + helpDescStyle.Render("Deselect all") + "\n")
 	b.WriteString("\n")
 
+	b.WriteString("  " + helpSectionStyle.Render("Sorting") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render(">") + "           " + helpDescStyle.Render("Next sort column (branch → PR# → state → none)") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("<") + "           " + helpDescStyle.Render("Previous sort column (state → PR# → branch → none)") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("s") + "           " + helpDescStyle.Render("Toggle sort direction (asc/desc)") + "\n")
+	b.WriteString("\n")
+
 	b.WriteString("  " + helpSectionStyle.Render("Actions") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("tab") + "         " + helpDescStyle.Render("Proceed to cleanup confirmation") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Confirm cleanup / back to list") + "\n")
@@ -402,6 +423,83 @@ func (m model) viewHelp() string {
 	b.WriteString("  " + helpStyle.Render("[?] close help  [q] quit") + "\n")
 
 	return b.String()
+}
+
+func (m model) toggleSortDir() model {
+	if m.sortCol == SortNone {
+		return m
+	}
+	var cursorPath string
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		cursorPath = m.rows[m.cursor].Worktree.Path
+	}
+
+	if m.sortDir == SortAsc {
+		m.sortDir = SortDesc
+	} else {
+		m.sortDir = SortAsc
+	}
+	m.rows = sortRows(m.rows, m.sortCol, m.sortDir)
+
+	if cursorPath != "" {
+		for i, r := range m.rows {
+			if r.Worktree.Path == cursorPath {
+				m.cursor = i
+				break
+			}
+		}
+	}
+	return m
+}
+
+func (m model) advanceSort(nextFn func(SortColumn) SortColumn) model {
+	// Track cursor by path
+	var cursorPath string
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		cursorPath = m.rows[m.cursor].Worktree.Path
+	}
+
+	next := nextFn(m.sortCol)
+	if next == m.sortCol {
+		// Same column: toggle direction
+		if m.sortDir == SortAsc {
+			m.sortDir = SortDesc
+		} else {
+			m.sortDir = SortAsc
+		}
+	} else {
+		m.sortCol = next
+		m.sortDir = SortAsc
+	}
+
+	if m.sortCol != SortNone {
+		m.rows = sortRows(m.rows, m.sortCol, m.sortDir)
+	} else {
+		// Restore original order, preserving selection state
+		selected := make(map[string]bool)
+		for _, r := range m.rows {
+			if r.Selected {
+				selected[r.Worktree.Path] = true
+			}
+		}
+		m.rows = make([]WorktreeRow, len(m.unsortedRows))
+		copy(m.rows, m.unsortedRows)
+		for i := range m.rows {
+			m.rows[i].Selected = selected[m.rows[i].Worktree.Path]
+		}
+	}
+
+	// Restore cursor position
+	if cursorPath != "" {
+		for i, r := range m.rows {
+			if r.Worktree.Path == cursorPath {
+				m.cursor = i
+				break
+			}
+		}
+	}
+
+	return m
 }
 
 func (m model) selectedCount() int {
