@@ -88,3 +88,52 @@ func TestPlainStatus_Fallback(t *testing.T) {
 		t.Errorf("expected '-', got %q", got)
 	}
 }
+
+func TestPlainStatus_LargePRNumber(t *testing.T) {
+	row := tui.WorktreeRow{
+		Worktree: git.Worktree{Branch: "feat"},
+		PR:       &gh.PR{Number: 99999, State: "OPEN"},
+		State:    tui.StateActive,
+	}
+	got := plainStatus(row)
+	if got != "#99999 open" {
+		t.Errorf("expected '#99999 open', got %q", got)
+	}
+}
+
+func TestPlainStatus_MainWithBareWorktree(t *testing.T) {
+	row := tui.WorktreeRow{
+		Worktree: git.Worktree{Branch: "main", IsMain: true, IsBare: true},
+		State:    tui.StateMain,
+	}
+	got := plainStatus(row)
+	if got != "main" {
+		t.Errorf("expected 'main', got %q", got)
+	}
+}
+
+func TestPlainStatus_AllDisplayStates(t *testing.T) {
+	// Verify every known DisplayState value produces a non-empty result.
+	states := []struct {
+		state tui.DisplayState
+		pr    *gh.PR
+	}{
+		{tui.StateActive, &gh.PR{Number: 1, State: "OPEN"}},
+		{tui.StateDraft, &gh.PR{Number: 2, State: "OPEN", IsDraft: true}},
+		{tui.StateMerged, &gh.PR{Number: 3, State: "MERGED"}},
+		{tui.StateClosed, &gh.PR{Number: 4, State: "CLOSED"}},
+		{tui.StateNoPR, nil},
+		{tui.StateMain, nil},
+	}
+	for _, tc := range states {
+		row := tui.WorktreeRow{
+			Worktree: git.Worktree{Branch: "b"},
+			PR:       tc.pr,
+			State:    tc.state,
+		}
+		got := plainStatus(row)
+		if got == "" {
+			t.Errorf("plainStatus returned empty string for state %q", tc.state)
+		}
+	}
+}
