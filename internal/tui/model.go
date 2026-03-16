@@ -43,12 +43,15 @@ type model struct {
 	loadErr       error
 	doneCountdown int
 
+	jumpPath string // set when user presses enter to jump to a worktree
+
 	width  int
 	height int
 }
 
-// Run launches the TUI.
-func Run(repoPath string) error {
+// Run launches the TUI. Returns the selected worktree path if the user
+// pressed enter to jump, or empty string on normal quit.
+func Run(repoPath string) (string, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
@@ -60,9 +63,16 @@ func Run(repoPath string) error {
 		spinner:  s,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	// Render TUI on stderr so stdout stays clean for jump path output.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithOutput(os.Stderr))
+	finalModel, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+	if fm, ok := finalModel.(model); ok && fm.jumpPath != "" {
+		return fm.jumpPath, nil
+	}
+	return "", nil
 }
 
 func (m model) Init() tea.Cmd {
@@ -227,6 +237,11 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedCount() > 0 {
 				m.phase = phaseConfirm
 			}
+		case key.Matches(msg, m.keys.Enter):
+			if m.cursor >= 0 && m.cursor < len(m.rows) {
+				m.jumpPath = m.rows[m.cursor].Worktree.Path
+				return m, tea.Quit
+			}
 		case key.Matches(msg, m.keys.Refresh):
 			m.phase = phaseLoad
 			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
@@ -364,7 +379,7 @@ func (m model) viewList() string {
 
 	b.WriteString("\n")
 	b.WriteString("  " + m.viewFooter() + "\n")
-	b.WriteString("  " + helpStyle.Render("[space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [?] help  [q]uit") + "\n")
+	b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [?] help  [q]uit") + "\n")
 
 	return b.String()
 }
@@ -491,8 +506,8 @@ func (m model) viewHelp() string {
 	b.WriteString("\n")
 
 	b.WriteString("  " + helpSectionStyle.Render("Actions") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Jump to worktree directory (exit + cd)") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("tab") + "         " + helpDescStyle.Render("Proceed to cleanup confirmation") + "\n")
-	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Confirm cleanup / back to list") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("r") + "           " + helpDescStyle.Render("Refresh worktrees and PR status") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("backspace") + "   " + helpDescStyle.Render("Go back") + "\n")
 	b.WriteString("\n")

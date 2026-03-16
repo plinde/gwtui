@@ -40,7 +40,14 @@ func main() {
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
 				return cli.Print(repoPath)
 			}
-			return tui.Run(repoPath)
+			jumpPath, err := tui.Run(repoPath)
+			if err != nil {
+				return err
+			}
+			if jumpPath != "" {
+				fmt.Println(jumpPath)
+			}
+			return nil
 		},
 	}
 
