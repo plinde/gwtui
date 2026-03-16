@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/plinde/gwtui/internal/git"
 	gh "github.com/plinde/gwtui/internal/github"
 )
@@ -113,14 +115,15 @@ func RenderRow(row WorktreeRow, isCursor bool, maxBranch, maxStatus int) string 
 		branchCol = stateMainStyle.Render(padRight(branch, maxBranch))
 	}
 
-	// Status column
+	// Status column — pad using visible width since renderStatus returns styled text
 	statusText := renderStatus(row)
-	statusCol := padRight(statusText, maxStatus)
+	statusCol := padRightVisible(statusText, maxStatus)
 
 	// Path column
 	pathCol := pathStyle.Render(CompressPath(row.Worktree.Path))
 
-	return cursor + checkbox + branchCol + "  " + statusCol + "  " + pathCol
+	sep := dimStyle.Render(" │ ")
+	return cursor + checkbox + branchCol + sep + statusCol + sep + pathCol
 }
 
 func renderStatus(row WorktreeRow) string {
@@ -151,6 +154,16 @@ func padRight(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-len(s))
+}
+
+// padRightVisible pads a string that may contain ANSI escape codes,
+// using visible (cell) width instead of byte length.
+func padRightVisible(s string, width int) string {
+	vis := lipgloss.Width(s)
+	if vis >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-vis)
 }
 
 // ColumnWidths calculates maximum branch and status widths for alignment.

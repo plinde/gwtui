@@ -12,8 +12,11 @@ type keyMap struct {
 	Enter   key.Binding
 	Help    key.Binding
 	Back    key.Binding
-	Refresh key.Binding
-	Quit    key.Binding
+	Refresh  key.Binding
+	SortNext   key.Binding
+	SortPrev   key.Binding
+	SortToggle key.Binding
+	Quit       key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -57,6 +60,18 @@ func defaultKeyMap() keyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		SortNext: key.NewBinding(
+			key.WithKeys(">"),
+			key.WithHelp(">", "next sort column"),
+		),
+		SortPrev: key.NewBinding(
+			key.WithKeys("<"),
+			key.WithHelp("<", "previous sort column"),
+		),
+		SortToggle: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "toggle sort direction"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
