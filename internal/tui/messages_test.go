@@ -12,7 +12,7 @@ import (
 func initGitRepo(t *testing.T, path string) {
 	t.Helper()
 	for _, args := range [][]string{
-		{"git", "init", "--initial-branch=main"},
+		{"git", "init", "--initial-branch=test-main"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
 		{"git", "commit", "--allow-empty", "-m", "init"},

@@ -28,7 +28,7 @@ func setupTestRepo(t *testing.T) string {
 		}
 	}
 
-	run("init", "-b", "main")
+	run("init", "-b", "test-main")
 	run("commit", "--allow-empty", "-m", "init")
 
 	return dir
