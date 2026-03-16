@@ -255,3 +255,21 @@ func TestPrevSortColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestSortColumnLabel(t *testing.T) {
+	tests := []struct {
+		col  SortColumn
+		want string
+	}{
+		{SortBranch, "BRANCH"},
+		{SortPRNum, "PR#"},
+		{SortState, "STATE"},
+		{SortNone, ""},
+	}
+	for _, tt := range tests {
+		got := sortColumnLabel(tt.col)
+		if got != tt.want {
+			t.Errorf("sortColumnLabel(%d) = %q, want %q", tt.col, got, tt.want)
+		}
+	}
+}
