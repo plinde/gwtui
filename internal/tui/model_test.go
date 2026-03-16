@@ -383,6 +383,62 @@ func TestList_Refresh(t *testing.T) {
 	}
 }
 
+// ---------- Enter-to-jump ----------
+
+func TestList_EnterSetsJumpPathAndQuits(t *testing.T) {
+	m := newTestModel()
+	m.cursor = 2 // row "b" at /repo--b
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	um := updated.(model)
+
+	if um.jumpPath != "/repo--b" {
+		t.Errorf("expected jumpPath=/repo--b, got %q", um.jumpPath)
+	}
+	if cmd == nil {
+		t.Fatal("expected quit cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Errorf("expected tea.QuitMsg, got %T", msg)
+	}
+}
+
+func TestList_EnterOnMainRow(t *testing.T) {
+	m := newTestModel()
+	m.cursor = 0 // main row at /repo
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	um := updated.(model)
+
+	// Should still jump — enter works on any row
+	if um.jumpPath != "/repo" {
+		t.Errorf("expected jumpPath=/repo, got %q", um.jumpPath)
+	}
+	if cmd == nil {
+		t.Fatal("expected quit cmd, got nil")
+	}
+}
+
+func TestList_EnterWithEmptyRows(t *testing.T) {
+	m := model{
+		phase:  phaseList,
+		keys:   defaultKeyMap(),
+		rows:   []WorktreeRow{},
+		cursor: 0,
+	}
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	um := updated.(model)
+
+	if um.jumpPath != "" {
+		t.Errorf("expected empty jumpPath with no rows, got %q", um.jumpPath)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd with empty rows")
+	}
+}
+
 // ---------- Confirm phase key events ----------
 
 func TestConfirm_EnterStartsCleanup(t *testing.T) {

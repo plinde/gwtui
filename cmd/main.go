@@ -40,17 +40,55 @@ func main() {
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
 				return cli.Print(repoPath)
 			}
-			return tui.Run(repoPath)
+			jumpPath, err := tui.Run(repoPath)
+			if err != nil {
+				return err
+			}
+			if jumpPath != "" {
+				fmt.Println(jumpPath)
+			}
+			return nil
 		},
 	}
 
 	rootCmd.Flags().StringVar(&repoPath, "repo", "", "path to git repository (default: current repo)")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
 
+	initCmd := &cobra.Command{
+		Use:       "init [shell]",
+		Short:     "Generate shell integration (add to .zshrc: eval \"$(gwtui init zsh)\")",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: []string{"zsh", "bash"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return printShellInit(args[0])
+		},
+	}
+	rootCmd.AddCommand(initCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
+
+func printShellInit(shell string) error {
+	switch shell {
+	case "zsh", "bash":
+		fmt.Print(shellInitScript)
+		return nil
+	default:
+		return fmt.Errorf("unsupported shell: %s (supported: zsh, bash)", shell)
+	}
+}
+
+const shellInitScript = `# gwtui shell integration
+gw() {
+  local dir
+  dir=$(command gwtui "$@")
+  if [[ -n "$dir" && -d "$dir" ]]; then
+    cd "$dir" || return 1
+  fi
+}
+`
 
 func gitRepoRoot() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
