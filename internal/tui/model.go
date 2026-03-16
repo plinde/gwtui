@@ -36,8 +36,9 @@ type model struct {
 	maxBranch int
 	maxStatus int
 
-	results []git.CleanupResult
-	loadErr error
+	results       []git.CleanupResult
+	loadErr       error
+	doneCountdown int
 
 	width  int
 	height int
@@ -62,7 +63,7 @@ func Run(repoPath string) error {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath), scheduleAutoRefresh())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -85,10 +86,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadDoneMsg:
 		return m.handleLoadDone(msg)
 
+	case autoRefreshTickMsg:
+		return m.handleAutoRefreshTick()
+
+	case autoRefreshDoneMsg:
+		return m.handleAutoRefreshDone(msg)
+
 	case cleanupDoneMsg:
 		m.results = msg.results
 		m.phase = phaseDone
+		if len(m.results) > 0 {
+			m.doneCountdown = doneCountdownSeconds
+			return m, scheduleDoneCountdown()
+		}
 		return m, nil
+
+	case doneCountdownTickMsg:
+		return m.handleDoneCountdownTick()
 	}
 
 	switch m.phase {
@@ -109,7 +123,7 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.loadErr = msg.err
 		m.phase = phaseDone
-		return m, nil
+		return m, scheduleAutoRefresh()
 	}
 	m.rows = EnrichWorktrees(msg.worktrees, msg.prs)
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
@@ -121,7 +135,58 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	return m, nil
+	return m, scheduleAutoRefresh()
+}
+
+func (m model) handleAutoRefreshTick() (tea.Model, tea.Cmd) {
+	if m.phase == phaseList {
+		return m, doAutoRefresh(m.repoPath)
+	}
+	// Not in list phase — reschedule without loading
+	return m, scheduleAutoRefresh()
+}
+
+func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd) {
+	// If we're no longer in list phase, discard and reschedule
+	if m.phase != phaseList {
+		return m, scheduleAutoRefresh()
+	}
+
+	// Silently ignore errors — don't disrupt the UI
+	if msg.err != nil {
+		return m, scheduleAutoRefresh()
+	}
+
+	// Preserve selected state by branch name
+	oldSelected := make(map[string]bool)
+	for _, r := range m.rows {
+		if r.Selected {
+			oldSelected[r.Worktree.Branch] = true
+		}
+	}
+
+	// Build new rows
+	newRows := EnrichWorktrees(msg.worktrees, msg.prs)
+
+	// Restore selections
+	for i := range newRows {
+		if oldSelected[newRows[i].Worktree.Branch] {
+			newRows[i].Selected = true
+		}
+	}
+
+	m.rows = newRows
+	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
+
+	// Clamp cursor if list shrank
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+
+	return m, scheduleAutoRefresh()
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -180,13 +245,30 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		if key.Matches(msg, m.keys.Enter) || key.Matches(msg, m.keys.Back) {
-			m.results = nil
-			m.loadErr = nil
-			m.phase = phaseLoad
-			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+			return m.returnToList()
 		}
 	}
 	return m, nil
+}
+
+func (m model) handleDoneCountdownTick() (tea.Model, tea.Cmd) {
+	if m.phase != phaseDone {
+		return m, nil
+	}
+	m.doneCountdown--
+	if m.doneCountdown <= 0 {
+		return m.returnToList()
+	}
+	return m, scheduleDoneCountdown()
+}
+
+// returnToList resets done-screen state and transitions to loading.
+func (m model) returnToList() (tea.Model, tea.Cmd) {
+	m.results = nil
+	m.loadErr = nil
+	m.doneCountdown = 0
+	m.phase = phaseLoad
+	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
 }
 
 func (m model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -360,7 +442,11 @@ func (m model) viewDone() string {
 	}
 	b.WriteString("  " + dimStyle.Render(summary) + "\n")
 	b.WriteString("\n")
-	b.WriteString("  " + helpStyle.Render("[enter] back to list  [q] quit") + "\n")
+	if m.doneCountdown > 0 {
+		b.WriteString("  " + helpStyle.Render(fmt.Sprintf("[enter] back to list (%ds)  [q] quit", m.doneCountdown)) + "\n")
+	} else {
+		b.WriteString("  " + helpStyle.Render("[enter] back to list  [q] quit") + "\n")
+	}
 
 	return b.String()
 }
