@@ -32,12 +32,18 @@ type model struct {
 	spinner  spinner.Model
 
 	rows         []WorktreeRow
+	allRows      []WorktreeRow // full set before filtering
 	unsortedRows []WorktreeRow // original order for SortNone restore
 	cursor       int
 	maxBranch    int
 	maxStatus    int
 	sortCol      SortColumn
 	sortDir      SortDirection
+
+	// Filter state
+	filtering    bool   // filter input is active (typing)
+	filterText   string // current filter query
+	filterLocked bool   // filter applied but input dismissed (Tab)
 
 	results       []git.CleanupResult
 	loadErr       error
@@ -89,7 +95,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if key.Matches(msg, m.keys.Quit) {
+		if !m.filtering && key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
 		}
 
@@ -142,10 +148,16 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.unsortedRows = EnrichWorktrees(msg.worktrees, msg.prs)
 	if m.sortCol != SortNone {
-		m.rows = sortRows(m.unsortedRows, m.sortCol, m.sortDir)
+		m.allRows = sortRows(m.unsortedRows, m.sortCol, m.sortDir)
 	} else {
-		m.rows = make([]WorktreeRow, len(m.unsortedRows))
-		copy(m.rows, m.unsortedRows)
+		m.allRows = make([]WorktreeRow, len(m.unsortedRows))
+		copy(m.allRows, m.unsortedRows)
+	}
+	// Apply filter if locked
+	if m.filterLocked && m.filterText != "" {
+		m.rows = filterRows(m.allRows, m.filterText)
+	} else {
+		m.rows = m.allRows
 	}
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 	m.phase = phaseList
@@ -202,9 +214,15 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 
 	// Re-apply current sort
 	if m.sortCol != SortNone {
-		m.rows = sortRows(newRows, m.sortCol, m.sortDir)
+		newRows = sortRows(newRows, m.sortCol, m.sortDir)
+	}
+
+	m.allRows = newRows
+	// Apply filter if active
+	if (m.filtering || m.filterLocked) && m.filterText != "" {
+		m.rows = filterRows(m.allRows, m.filterText)
 	} else {
-		m.rows = newRows
+		m.rows = m.allRows
 	}
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 
@@ -220,6 +238,11 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate to filter input handler when filtering
+	if m.filtering {
+		return m.updateFilter(msg)
+	}
+
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch {
 		case key.Matches(msg, m.keys.Up):
@@ -262,12 +285,95 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.advanceSort(prevSortColumn)
 		case key.Matches(msg, m.keys.SortToggle):
 			m = m.toggleSortDir()
+		case key.Matches(msg, m.keys.Filter):
+			m.filtering = true
+			m.filterLocked = false
+		case msg.Type == tea.KeyEscape:
+			// Clear locked filter
+			if m.filterLocked {
+				m = m.syncSelectionsToAll()
+				m.filterLocked = false
+				m.filterText = ""
+				m.rows = m.allRows
+				m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
+				m.cursor = 0
+			}
 		case key.Matches(msg, m.keys.Help):
 			m.prevPhase = phaseList
 			m.phase = phaseHelp
 		}
 	}
 	return m, nil
+}
+
+func (m model) updateFilter(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch msg.Type {
+		case tea.KeyEscape:
+			// Cancel filter — restore full list
+			m = m.syncSelectionsToAll()
+			m.filtering = false
+			m.filterLocked = false
+			m.filterText = ""
+			m.rows = m.allRows
+			m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
+			m.cursor = 0
+			return m, nil
+
+		case tea.KeyTab:
+			// Lock filter — keep filtered results, dismiss input
+			m = m.syncSelectionsToAll()
+			m.filtering = false
+			if m.filterText != "" {
+				m.filterLocked = true
+			}
+			return m, nil
+
+		case tea.KeyBackspace:
+			if len(m.filterText) > 0 {
+				m.filterText = m.filterText[:len(m.filterText)-1]
+				m = m.applyFilter()
+			}
+			return m, nil
+
+		case tea.KeyRunes:
+			m.filterText += string(msg.Runes)
+			m = m.applyFilter()
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// applyFilter filters allRows by filterText and updates visible rows.
+func (m model) applyFilter() model {
+	if m.filterText == "" {
+		m.rows = m.allRows
+	} else {
+		m.rows = filterRows(m.allRows, m.filterText)
+	}
+	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	return m
+}
+
+// syncSelectionsToAll propagates selection state from filtered rows back to allRows.
+func (m model) syncSelectionsToAll() model {
+	selected := make(map[string]bool)
+	for _, r := range m.rows {
+		if r.Selected {
+			selected[r.Worktree.Path] = true
+		}
+	}
+	for i := range m.allRows {
+		m.allRows[i].Selected = selected[m.allRows[i].Worktree.Path]
+	}
+	return m
 }
 
 func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -390,7 +496,14 @@ func (m model) viewList() string {
 
 	b.WriteString("\n")
 	b.WriteString("  " + m.viewFooter() + "\n")
-	b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [?] help  [q]uit") + "\n")
+	if m.filtering {
+		b.WriteString("  " + filterPromptStyle.Render("/") + filterInputStyle.Render(m.filterText) + filterPromptStyle.Render("█") + "\n")
+	} else if m.filterLocked {
+		b.WriteString("  " + filterActiveStyle.Render(fmt.Sprintf("filter: %s", m.filterText)) +
+			"  " + helpStyle.Render("[/] edit  [esc] clear") + "\n")
+	} else {
+		b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [/] filter  [?] help  [q]uit") + "\n")
+	}
 
 	return b.String()
 }
@@ -516,6 +629,12 @@ func (m model) viewHelp() string {
 	b.WriteString("  " + helpKeyStyle.Render("s") + "           " + helpDescStyle.Render("Toggle sort direction (asc/desc)") + "\n")
 	b.WriteString("\n")
 
+	b.WriteString("  " + helpSectionStyle.Render("Filter") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("/") + "           " + helpDescStyle.Render("Open filter input") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("tab") + "         " + helpDescStyle.Render("Accept filter — keep filtered results") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("esc") + "         " + helpDescStyle.Render("Cancel filter — restore full list") + "\n")
+	b.WriteString("\n")
+
 	b.WriteString("  " + helpSectionStyle.Render("Actions") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("enter") + "       " + helpDescStyle.Render("Jump to worktree directory (exit + cd)") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("tab") + "         " + helpDescStyle.Render("Proceed to cleanup confirmation") + "\n")
@@ -541,6 +660,8 @@ func (m model) toggleSortDir() model {
 	if m.sortCol == SortNone {
 		return m
 	}
+	m = m.syncSelectionsToAll()
+
 	var cursorPath string
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		cursorPath = m.rows[m.cursor].Worktree.Path
@@ -551,7 +672,12 @@ func (m model) toggleSortDir() model {
 	} else {
 		m.sortDir = SortAsc
 	}
-	m.rows = sortRows(m.rows, m.sortCol, m.sortDir)
+	m.allRows = sortRows(m.allRows, m.sortCol, m.sortDir)
+	if (m.filtering || m.filterLocked) && m.filterText != "" {
+		m.rows = filterRows(m.allRows, m.filterText)
+	} else {
+		m.rows = m.allRows
+	}
 
 	if cursorPath != "" {
 		for i, r := range m.rows {
@@ -565,6 +691,9 @@ func (m model) toggleSortDir() model {
 }
 
 func (m model) advanceSort(nextFn func(SortColumn) SortColumn) model {
+	// Sync selections from visible rows to allRows before re-sorting
+	m = m.syncSelectionsToAll()
+
 	// Track cursor by path
 	var cursorPath string
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
@@ -585,20 +714,27 @@ func (m model) advanceSort(nextFn func(SortColumn) SortColumn) model {
 	}
 
 	if m.sortCol != SortNone {
-		m.rows = sortRows(m.rows, m.sortCol, m.sortDir)
+		m.allRows = sortRows(m.allRows, m.sortCol, m.sortDir)
 	} else {
 		// Restore original order, preserving selection state
 		selected := make(map[string]bool)
-		for _, r := range m.rows {
+		for _, r := range m.allRows {
 			if r.Selected {
 				selected[r.Worktree.Path] = true
 			}
 		}
-		m.rows = make([]WorktreeRow, len(m.unsortedRows))
-		copy(m.rows, m.unsortedRows)
-		for i := range m.rows {
-			m.rows[i].Selected = selected[m.rows[i].Worktree.Path]
+		m.allRows = make([]WorktreeRow, len(m.unsortedRows))
+		copy(m.allRows, m.unsortedRows)
+		for i := range m.allRows {
+			m.allRows[i].Selected = selected[m.allRows[i].Worktree.Path]
 		}
+	}
+
+	// Apply filter if active
+	if (m.filtering || m.filterLocked) && m.filterText != "" {
+		m.rows = filterRows(m.allRows, m.filterText)
+	} else {
+		m.rows = m.allRows
 	}
 
 	// Restore cursor position
