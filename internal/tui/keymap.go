@@ -12,10 +12,11 @@ type keyMap struct {
 	Enter   key.Binding
 	Help    key.Binding
 	Back    key.Binding
-	Refresh  key.Binding
+	Refresh    key.Binding
 	SortNext   key.Binding
 	SortPrev   key.Binding
 	SortToggle key.Binding
+	Filter     key.Binding
 	Quit       key.Binding
 }
 
@@ -72,6 +73,10 @@ func defaultKeyMap() keyMap {
 		SortToggle: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "toggle sort direction"),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

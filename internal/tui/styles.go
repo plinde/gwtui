@@ -76,4 +76,14 @@ var (
 
 	helpDescStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
+
+	filterPromptStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("11")).
+				Bold(true)
+
+	filterInputStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252"))
+
+	filterActiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("11"))
 )
