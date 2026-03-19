@@ -61,6 +61,8 @@ func Run(repoPath string) (string, error) {
 		repoPath: repoPath,
 		keys:     defaultKeyMap(),
 		spinner:  s,
+		sortCol:  SortState,
+		sortDir:  SortDesc,
 	}
 
 	// Render TUI on stderr so stdout stays clean for jump path output.
