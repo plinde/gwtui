@@ -324,15 +324,152 @@ func TestFilter_NavigationWorksOnFilteredResults(t *testing.T) {
 func TestFilter_SelectionWorksOnFilteredResults(t *testing.T) {
 	m := newFilterableModel()
 	m.filterLocked = true
-	m.filterText = "alpha"
+	m.filterText = "bravo"
 	m = m.applyFilter()
 	m.cursor = 0
 
-	// Toggle selection on filtered row
+	// Toggle selection on filtered row (bravo is merged/cleanable)
 	updated, _ := m.Update(specialKey(tea.KeySpace))
 	um := updated.(model)
 
 	if !um.rows[0].Selected {
 		t.Error("expected filtered row to be selected after space")
+	}
+}
+
+// ---------- Bug fix: selection preservation on filtered-out rows ----------
+
+func TestFilter_SelectionsPreservedOnFilteredOutRows(t *testing.T) {
+	m := newFilterableModel()
+
+	// Select bravo (index 2) before filtering
+	m.rows[2].Selected = true
+	m.allRows[2].Selected = true
+
+	// Enter filter mode and filter to only show alpha
+	m.filtering = true
+	m.filterText = "alpha"
+	m = m.applyFilter()
+
+	// Cancel filter with Esc
+	updated, _ := m.Update(specialKey(tea.KeyEscape))
+	um := updated.(model)
+
+	// bravo's selection should be preserved even though it was hidden
+	found := false
+	for _, r := range um.rows {
+		if r.Worktree.Branch == "bravo" && r.Selected {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected bravo selection preserved after filter cancel, but it was lost")
+	}
+}
+
+func TestFilter_SelectionsPreservedOnTabLock(t *testing.T) {
+	m := newFilterableModel()
+
+	// Select bravo before filtering
+	m.rows[2].Selected = true
+	m.allRows[2].Selected = true
+
+	// Filter to only show alpha, then Tab to lock
+	m.filtering = true
+	m.filterText = "alpha"
+	m = m.applyFilter()
+
+	updated, _ := m.Update(specialKey(tea.KeyTab))
+	um := updated.(model)
+
+	// Now clear filter with Esc — bravo should still be selected
+	updated, _ = um.Update(specialKey(tea.KeyEscape))
+	um = updated.(model)
+
+	found := false
+	for _, r := range um.rows {
+		if r.Worktree.Branch == "bravo" && r.Selected {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected bravo selection preserved after Tab lock + Esc clear")
+	}
+}
+
+// ---------- Bug fix: Ctrl+C during filter mode ----------
+
+func TestFilter_CtrlCQuitsDuringFilter(t *testing.T) {
+	m := newFilterableModel()
+	m.filtering = true
+	m.filterText = "test"
+
+	_, cmd := m.Update(specialKey(tea.KeyCtrlC))
+	if cmd == nil {
+		t.Fatal("expected quit cmd on Ctrl+C during filter, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Errorf("expected tea.QuitMsg on Ctrl+C during filter, got %T", msg)
+	}
+}
+
+// ---------- Additional edge cases ----------
+
+func TestFilter_BackspaceOnEmptyText(t *testing.T) {
+	m := newFilterableModel()
+	m.filtering = true
+	m.filterText = ""
+
+	updated, _ := m.Update(specialKey(tea.KeyBackspace))
+	um := updated.(model)
+
+	if um.filterText != "" {
+		t.Errorf("expected empty filterText after backspace on empty, got %q", um.filterText)
+	}
+	// Should still show all rows
+	if len(um.rows) != 4 {
+		t.Errorf("expected 4 rows, got %d", len(um.rows))
+	}
+}
+
+func TestFilter_EnterIgnoredDuringFilter(t *testing.T) {
+	m := newFilterableModel()
+	m.filtering = true
+	m.filterText = "alpha"
+	m = m.applyFilter()
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	um := updated.(model)
+
+	// Enter should be silently ignored during filter input
+	if um.jumpPath != "" {
+		t.Error("expected no jumpPath during filter mode")
+	}
+	if cmd != nil {
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); ok {
+			t.Error("Enter should not quit during filter mode")
+		}
+	}
+}
+
+func TestFilter_FilterThenSort(t *testing.T) {
+	m := newFilterableModel()
+	m.filterLocked = true
+	m.filterText = "a" // matches main, alpha, charlie (all contain 'a')
+	m = m.applyFilter()
+	initialCount := len(m.rows)
+
+	// Sort by branch
+	updated, _ := m.Update(runeKey('>'))
+	um := updated.(model)
+
+	// Filter should still be active after sort
+	if len(um.rows) != initialCount {
+		t.Errorf("expected %d filtered rows after sort, got %d", initialCount, len(um.rows))
+	}
+	if !um.filterLocked {
+		t.Error("expected filterLocked to remain true after sort")
 	}
 }
