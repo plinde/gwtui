@@ -196,7 +196,16 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 		}
 	}
 
-	m.rows = newRows
+	// Preserve unsorted order for SortNone restore
+	m.unsortedRows = make([]WorktreeRow, len(newRows))
+	copy(m.unsortedRows, newRows)
+
+	// Re-apply current sort
+	if m.sortCol != SortNone {
+		m.rows = sortRows(newRows, m.sortCol, m.sortDir)
+	} else {
+		m.rows = newRows
+	}
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 
 	// Clamp cursor if list shrank
