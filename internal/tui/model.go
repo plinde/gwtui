@@ -93,6 +93,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Ctrl+C always quits, even during filter input
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
 		if !m.filtering && key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
 		}
@@ -188,8 +192,14 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 		return m, scheduleAutoRefresh()
 	}
 
-	// Preserve selected state by branch name
+	// Preserve selected state by branch name from both visible and hidden rows
 	oldSelected := make(map[string]bool)
+	for _, r := range m.allRows {
+		if r.Selected {
+			oldSelected[r.Worktree.Branch] = true
+		}
+	}
+	// Also capture any pending selections from the filtered view
 	for _, r := range m.rows {
 		if r.Selected {
 			oldSelected[r.Worktree.Branch] = true
@@ -352,15 +362,17 @@ func (m model) applyFilter() model {
 }
 
 // syncSelectionsToAll propagates selection state from filtered rows back to allRows.
+// Only updates allRows entries that are present in the current filtered view,
+// leaving selections on hidden (filtered-out) rows untouched.
 func (m model) syncSelectionsToAll() model {
-	selected := make(map[string]bool)
+	visible := make(map[string]bool)
 	for _, r := range m.rows {
-		if r.Selected {
-			selected[r.Worktree.Path] = true
-		}
+		visible[r.Worktree.Path] = r.Selected
 	}
 	for i := range m.allRows {
-		m.allRows[i].Selected = selected[m.allRows[i].Worktree.Path]
+		if sel, ok := visible[m.allRows[i].Worktree.Path]; ok {
+			m.allRows[i].Selected = sel
+		}
 	}
 	return m
 }
