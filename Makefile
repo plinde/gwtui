@@ -1,6 +1,6 @@
 BINARY := gwtui
 BUILD_DIR := bin
-INSTALL_DIR := $(HOME)/bin
+INSTALL_DIR := $(HOME)/.local/bin
 
 .PHONY: build install clean test test-v cover
 
