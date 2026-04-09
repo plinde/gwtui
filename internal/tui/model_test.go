@@ -21,11 +21,14 @@ func newTestModel() model {
 		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--c", Branch: "c"}, State: StateActive, Cleanable: false},
 	}
+	rowsCopy := make([]WorktreeRow, len(rows))
+	copy(rowsCopy, rows)
 	return model{
 		phase:     phaseList,
 		repoPath:  "/repo",
 		keys:      defaultKeyMap(),
 		rows:      rows,
+		allRows:   rowsCopy,
 		cursor:    1, // first cleanable
 		maxBranch: 4,
 		maxStatus: 5,
@@ -761,11 +764,14 @@ func newSortableModel() model {
 		{Worktree: git.Worktree{Path: "/repo--bravo", Branch: "bravo"}, State: StateMerged, Cleanable: true},
 		{Worktree: git.Worktree{Path: "/repo--charlie", Branch: "charlie"}, State: StateNoPR, Cleanable: false},
 	}
+	rowsCopy := make([]WorktreeRow, len(rows))
+	copy(rowsCopy, rows)
 	return model{
 		phase:        phaseList,
 		repoPath:     "/repo",
 		keys:         defaultKeyMap(),
 		rows:         rows,
+		allRows:      rowsCopy,
 		unsortedRows: rows,
 		cursor:       1,
 		maxBranch:     7,
