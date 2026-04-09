@@ -139,6 +139,8 @@ func TestLoadDone_Success(t *testing.T) {
 		phase:    phaseLoad,
 		repoPath: "/repo",
 		keys:     defaultKeyMap(),
+		sortCol:  SortState,
+		sortDir:  SortDesc,
 	}
 
 	wts := []git.Worktree{
@@ -170,6 +172,13 @@ func TestLoadDone_Success(t *testing.T) {
 	if um.cursor != 1 {
 		t.Errorf("expected cursor=1 (first cleanable), got %d", um.cursor)
 	}
+	// Default sort should be applied
+	if um.sortCol != SortState {
+		t.Errorf("expected sortCol=SortState, got %d", um.sortCol)
+	}
+	if um.sortDir != SortDesc {
+		t.Errorf("expected sortDir=SortDesc, got %d", um.sortDir)
+	}
 }
 
 func TestLoadDone_Error(t *testing.T) {
@@ -199,6 +208,8 @@ func TestLoadDone_CursorOnFirstCleanable(t *testing.T) {
 		phase:    phaseLoad,
 		repoPath: "/repo",
 		keys:     defaultKeyMap(),
+		sortCol:  SortState,
+		sortDir:  SortDesc,
 	}
 
 	// First two are non-cleanable (main, open PR), third is cleanable
@@ -216,8 +227,10 @@ func TestLoadDone_CursorOnFirstCleanable(t *testing.T) {
 	updated, _ := m.Update(msg)
 	um := updated.(model)
 
-	if um.cursor != 2 {
-		t.Errorf("expected cursor=2 (first cleanable), got %d", um.cursor)
+	// With SortState desc: main (pinned) → merged → open
+	// First cleanable is merged at index 1
+	if um.cursor != 1 {
+		t.Errorf("expected cursor=1 (first cleanable with state-desc sort), got %d", um.cursor)
 	}
 }
 
@@ -928,5 +941,44 @@ func TestList_SortToggleKey(t *testing.T) {
 	um := updated.(model)
 	if um.sortDir != SortDesc {
 		t.Errorf("expected SortDesc after 's', got %d", um.sortDir)
+	}
+}
+
+// ---------- Default sort ----------
+
+func TestDefaultSort_StateDesc(t *testing.T) {
+	m := model{
+		phase:    phaseLoad,
+		repoPath: "/repo",
+		keys:     defaultKeyMap(),
+		sortCol:  SortState,
+		sortDir:  SortDesc,
+	}
+
+	wts := []git.Worktree{
+		{Path: "/repo", Branch: "main", IsMain: true},
+		{Path: "/repo--open", Branch: "open"},
+		{Path: "/repo--merged", Branch: "merged"},
+		{Path: "/repo--closed", Branch: "closed"},
+		{Path: "/repo--draft", Branch: "draft"},
+		{Path: "/repo--nopr", Branch: "nopr"},
+	}
+	prs := map[string]*gh.PR{
+		"open":   {Number: 1, State: "OPEN", HeadRef: "open"},
+		"merged": {Number: 2, State: "MERGED", HeadRef: "merged"},
+		"closed": {Number: 3, State: "CLOSED", HeadRef: "closed"},
+		"draft":  {Number: 4, State: "OPEN", IsDraft: true, HeadRef: "draft"},
+	}
+
+	msg := loadDoneMsg{worktrees: wts, prs: prs}
+	updated, _ := m.Update(msg)
+	um := updated.(model)
+
+	// Pinned main first, then state-desc: closed(4) → merged(3) → no-pr(2) → draft(1) → open(0)
+	wantStates := []DisplayState{StateMain, StateClosed, StateMerged, StateNoPR, StateDraft, StateActive}
+	for i, want := range wantStates {
+		if um.rows[i].State != want {
+			t.Errorf("position %d: expected %s, got %s", i, want, um.rows[i].State)
+		}
 	}
 }

@@ -363,6 +363,66 @@ func TestDoneCountdownTick_WrongPhase_Ignored(t *testing.T) {
 	}
 }
 
+func TestAutoRefreshDoneMsg_PreservesSortOrder(t *testing.T) {
+	m := testModel()
+	m.sortCol = SortState
+	m.sortDir = SortDesc
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{
+			{Path: "/repo", Branch: "main", IsMain: true},
+			{Path: "/repo--open", Branch: "open"},
+			{Path: "/repo--merged", Branch: "merged"},
+			{Path: "/repo--closed", Branch: "closed"},
+		},
+		prs: map[string]*gh.PR{
+			"open":   {Number: 1, State: "OPEN", HeadRef: "open"},
+			"merged": {Number: 2, State: "MERGED", HeadRef: "merged"},
+			"closed": {Number: 3, State: "CLOSED", HeadRef: "closed"},
+		},
+	}
+
+	updated, _ := m.Update(msg)
+	um := updated.(model)
+
+	// With SortState desc: main (pinned) → closed → merged → open
+	wantStates := []DisplayState{StateMain, StateClosed, StateMerged, StateActive}
+	for i, want := range wantStates {
+		if i >= len(um.rows) {
+			t.Fatalf("only %d rows, expected at least %d", len(um.rows), i+1)
+		}
+		if um.rows[i].State != want {
+			t.Errorf("position %d: expected %s, got %s", i, want, um.rows[i].State)
+		}
+	}
+}
+
+func TestAutoRefreshDoneMsg_NoSortWhenSortNone(t *testing.T) {
+	m := testModel()
+	m.sortCol = SortNone
+	m.sortDir = SortAsc
+
+	msg := autoRefreshDoneMsg{
+		worktrees: []git.Worktree{
+			{Path: "/repo", Branch: "main", IsMain: true},
+			{Path: "/repo--c", Branch: "c"},
+			{Path: "/repo--a", Branch: "a"},
+		},
+		prs: map[string]*gh.PR{},
+	}
+
+	updated, _ := m.Update(msg)
+	um := updated.(model)
+
+	// With SortNone, insertion order preserved: main, c, a
+	want := []string{"main", "c", "a"}
+	for i, w := range want {
+		if um.rows[i].Worktree.Branch != w {
+			t.Errorf("position %d: expected %s, got %s", i, w, um.rows[i].Worktree.Branch)
+		}
+	}
+}
+
 func TestDoneEnter_CancelsCountdown(t *testing.T) {
 	m := testModel()
 	m.phase = phaseDone
