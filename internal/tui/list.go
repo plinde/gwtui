@@ -61,7 +61,7 @@ func EnrichWorktrees(worktrees []git.Worktree, prs map[string]*gh.PR) []Worktree
 			}
 		} else {
 			row.State = StateNoPR
-			row.Cleanable = true
+			row.Cleanable = false
 		}
 
 		rows = append(rows, row)

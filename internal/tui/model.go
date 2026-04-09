@@ -515,7 +515,7 @@ func (m model) viewHelp() string {
 	b.WriteString("  " + helpSectionStyle.Render("States") + "\n")
 	b.WriteString("  " + stateMergedStyle.Render("merged") + "      " + helpDescStyle.Render("PR merged — safe to clean") + "\n")
 	b.WriteString("  " + stateClosedStyle.Render("closed") + "      " + helpDescStyle.Render("PR closed — safe to clean") + "\n")
-	b.WriteString("  " + stateNoPRStyle.Render("no PR") + "       " + helpDescStyle.Render("No associated PR — review before cleaning") + "\n")
+	b.WriteString("  " + stateNoPRStyle.Render("no PR") + "       " + helpDescStyle.Render("No associated PR — protected, clean manually") + "\n")
 	b.WriteString("  " + stateOpenStyle.Render("open") + "        " + helpDescStyle.Render("PR open — protected, cannot select") + "\n")
 	b.WriteString("  " + stateDraftStyle.Render("draft") + "       " + helpDescStyle.Render("PR draft — protected, cannot select") + "\n")
 	b.WriteString("  " + stateMainStyle.Render("main") + "        " + helpDescStyle.Render("Main worktree — always protected") + "\n")

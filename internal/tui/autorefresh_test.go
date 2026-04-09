@@ -16,7 +16,7 @@ func testModel() model {
 	rows := []WorktreeRow{
 		{Worktree: git.Worktree{Path: "/repo", Branch: "main", IsMain: true}, State: StateMain, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--a", Branch: "a"}, State: StateMerged, Cleanable: true},
-		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--c", Branch: "c"}, State: StateActive, Cleanable: false},
 	}
 	return model{
