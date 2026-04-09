@@ -18,7 +18,7 @@ func newTestModel() model {
 	rows := []WorktreeRow{
 		{Worktree: git.Worktree{Path: "/repo", Branch: "main", IsMain: true}, State: StateMain, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--a", Branch: "a"}, State: StateMerged, Cleanable: true},
-		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--b", Branch: "b"}, State: StateNoPR, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--c", Branch: "c"}, State: StateActive, Cleanable: false},
 	}
 	return model{
@@ -101,9 +101,9 @@ func TestSelectedCount_All(t *testing.T) {
 
 func TestCleanableCount_Mix(t *testing.T) {
 	m := newTestModel()
-	// rows: main(not cleanable), a(cleanable), b(cleanable), c(not cleanable)
-	if n := m.cleanableCount(); n != 2 {
-		t.Errorf("expected 2 cleanable, got %d", n)
+	// rows: main(not cleanable), a(cleanable), b(not cleanable/no-pr), c(not cleanable)
+	if n := m.cleanableCount(); n != 1 {
+		t.Errorf("expected 1 cleanable, got %d", n)
 	}
 }
 
@@ -744,9 +744,9 @@ func TestView_UnknownPhase(t *testing.T) {
 func newSortableModel() model {
 	rows := []WorktreeRow{
 		{Worktree: git.Worktree{Path: "/repo", Branch: "main", IsMain: true}, State: StateMain},
-		{Worktree: git.Worktree{Path: "/repo--alpha", Branch: "alpha"}, State: StateNoPR, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--alpha", Branch: "alpha"}, State: StateNoPR, Cleanable: false},
 		{Worktree: git.Worktree{Path: "/repo--bravo", Branch: "bravo"}, State: StateMerged, Cleanable: true},
-		{Worktree: git.Worktree{Path: "/repo--charlie", Branch: "charlie"}, State: StateNoPR, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--charlie", Branch: "charlie"}, State: StateNoPR, Cleanable: false},
 	}
 	return model{
 		phase:        phaseList,

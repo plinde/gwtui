@@ -80,8 +80,8 @@ func TestEnrichWorktrees_NoPR(t *testing.T) {
 	if rows[0].State != StateNoPR {
 		t.Errorf("expected StateNoPR, got %s", rows[0].State)
 	}
-	if !rows[0].Cleanable {
-		t.Error("expected Cleanable=true for no PR")
+	if rows[0].Cleanable {
+		t.Error("expected Cleanable=false for no PR")
 	}
 	if rows[0].PR != nil {
 		t.Error("expected PR to be nil")
