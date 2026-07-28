@@ -498,46 +498,54 @@ func TestList_SelectAll(t *testing.T) {
 	}
 }
 
-func TestList_CtrlATogglesVisibleCleanableRows(t *testing.T) {
+func TestList_CtrlATogglesOnlyVisibleMergedClosedRows(t *testing.T) {
 	m := newTestModel()
 	m.rows = []WorktreeRow{
-		{Worktree: git.Worktree{Path: "/repo--a"}, Cleanable: true},
-		{Worktree: git.Worktree{Path: "/repo--b"}, Cleanable: true, Selected: true},
-		{Worktree: git.Worktree{Path: "/repo--protected"}, Cleanable: false},
+		{Worktree: git.Worktree{Path: "/repo--merged"}, State: StateMerged, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--closed"}, State: StateClosed, Cleanable: true, Selected: true},
+		{Worktree: git.Worktree{Path: "/repo--open"}, State: StateActive, Cleanable: true, Selected: true},
+		{Worktree: git.Worktree{Path: "/repo--draft"}, State: StateDraft, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--no-pr"}, State: StateNoPR, Cleanable: true, Selected: true},
+		{Worktree: git.Worktree{Path: "/repo"}, State: StateMain, Selected: true},
 	}
 
 	updated, _ := m.Update(specialKey(tea.KeyCtrlA))
 	got := updated.(model)
 	if !got.rows[0].Selected || !got.rows[1].Selected {
-		t.Fatal("ctrl+a should select every visible cleanable row when any is unselected")
+		t.Fatal("ctrl+a should select every visible merged/closed row when any is unselected")
 	}
-	if got.rows[2].Selected {
-		t.Fatal("ctrl+a selected a protected row")
+	if !got.rows[2].Selected || got.rows[3].Selected || !got.rows[4].Selected || !got.rows[5].Selected {
+		t.Fatal("ctrl+a changed a selection outside the merged/closed eligible set")
 	}
 
 	updated, _ = got.Update(specialKey(tea.KeyCtrlA))
 	got = updated.(model)
 	if got.rows[0].Selected || got.rows[1].Selected {
-		t.Fatal("second ctrl+a should clear every visible cleanable row")
+		t.Fatal("second ctrl+a should clear every visible merged/closed row")
+	}
+	if !got.rows[2].Selected || got.rows[3].Selected || !got.rows[4].Selected || !got.rows[5].Selected {
+		t.Fatal("second ctrl+a changed a selection outside the merged/closed eligible set")
 	}
 }
 
-func TestList_CtrlANoCleanableRowsIsNoOp(t *testing.T) {
+func TestList_CtrlANoMergedClosedRowsIsNoOp(t *testing.T) {
 	tests := []struct {
 		name string
 		rows []WorktreeRow
 	}{
 		{name: "empty"},
-		{name: "protected", rows: []WorktreeRow{{Cleanable: false}}},
+		{name: "open", rows: []WorktreeRow{{State: StateActive, Cleanable: true, Selected: true}}},
+		{name: "no-pr", rows: []WorktreeRow{{State: StateNoPR, Cleanable: true, Selected: true}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newTestModel()
 			m.rows = tt.rows
+			before := m.selectedCount()
 			updated, _ := m.Update(specialKey(tea.KeyCtrlA))
 			got := updated.(model)
-			if got.selectedCount() != 0 {
-				t.Fatalf("ctrl+a selected %d rows", got.selectedCount())
+			if got.selectedCount() != before {
+				t.Fatalf("ctrl+a changed selection count from %d to %d", before, got.selectedCount())
 			}
 		})
 	}
@@ -657,6 +665,94 @@ func TestConfirm_EnterStartsCleanup(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("expected non-nil cmd for cleanup batch")
+	}
+}
+
+func TestConfirm_OpenPRRequiresSecondConfirmation(t *testing.T) {
+	for _, draft := range []bool{false, true} {
+		name := "ready"
+		if draft {
+			name = "draft"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := newTestModel()
+			m.phase = phaseConfirm
+			m.rows = append(m.rows, WorktreeRow{
+				Worktree: git.Worktree{Path: "/repo--open-pr", Branch: "open-pr"},
+				PR:       &gh.PR{Number: 25, State: "OPEN", IsDraft: draft},
+				State:    StateActive,
+				Selected: true,
+			})
+
+			updated, cmd := m.Update(specialKey(tea.KeyEnter))
+			got := updated.(model)
+			if got.phase != phaseConfirmOpenPR {
+				t.Fatalf("phase = %d, want phaseConfirmOpenPR", got.phase)
+			}
+			if cmd != nil {
+				t.Fatal("first confirmation must not start cleanup for an open PR")
+			}
+		})
+	}
+}
+
+func TestConfirm_NoPRDoesNotRequireSecondConfirmation(t *testing.T) {
+	m := newTestModel()
+	m.phase = phaseConfirm
+	m.rows = []WorktreeRow{{
+		Worktree: git.Worktree{Path: "/repo--no-pr", Branch: "no-pr"},
+		State:    StateNoPR,
+		Selected: true,
+	}}
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	got := updated.(model)
+	if got.phase != phaseCleanup {
+		t.Fatalf("phase = %d, want phaseCleanup", got.phase)
+	}
+	if cmd == nil {
+		t.Fatal("expected cleanup command for selected row without an open PR")
+	}
+}
+
+func TestConfirmOpenPR_EnterStartsCleanup(t *testing.T) {
+	m := newTestModel()
+	m.phase = phaseConfirmOpenPR
+	m.rows = []WorktreeRow{{
+		Worktree: git.Worktree{Path: "/repo--open-pr", Branch: "open-pr"},
+		PR:       &gh.PR{Number: 25, State: "OPEN"},
+		Selected: true,
+	}}
+
+	updated, cmd := m.Update(specialKey(tea.KeyEnter))
+	got := updated.(model)
+	if got.phase != phaseCleanup {
+		t.Fatalf("phase = %d, want phaseCleanup", got.phase)
+	}
+	if cmd == nil {
+		t.Fatal("expected cleanup command after second confirmation")
+	}
+}
+
+func TestConfirmOpenPR_BackspaceReturnsToFirstConfirmation(t *testing.T) {
+	m := newTestModel()
+	m.phase = phaseConfirmOpenPR
+	m.rows = []WorktreeRow{{
+		Worktree: git.Worktree{Path: "/repo--open-pr", Branch: "open-pr"},
+		PR:       &gh.PR{Number: 25, State: "OPEN"},
+		Selected: true,
+	}}
+
+	updated, cmd := m.Update(specialKey(tea.KeyBackspace))
+	got := updated.(model)
+	if got.phase != phaseConfirm {
+		t.Fatalf("phase = %d, want phaseConfirm", got.phase)
+	}
+	if cmd != nil {
+		t.Fatal("backspace must not start cleanup")
+	}
+	if !got.rows[0].Selected {
+		t.Fatal("backspace changed the selected worktree")
 	}
 }
 
@@ -873,8 +969,8 @@ func TestView_List(t *testing.T) {
 	if v == "" {
 		t.Error("viewList() returned empty string")
 	}
-	if !strings.Contains(v, "[ctrl+a] all") {
-		t.Error("list footer does not document ctrl+a")
+	if !strings.Contains(v, "[ctrl+a] merged/closed") {
+		t.Error("list footer does not document ctrl+a merged/closed eligibility")
 	}
 }
 
@@ -885,6 +981,48 @@ func TestView_Confirm(t *testing.T) {
 	v := m.View()
 	if v == "" {
 		t.Error("viewConfirm() returned empty string")
+	}
+}
+
+func TestView_ConfirmOpenPRListsOnlyAffectedRows(t *testing.T) {
+	m := newTestModel()
+	m.phase = phaseConfirmOpenPR
+	m.rows = []WorktreeRow{
+		{
+			Worktree: git.Worktree{Path: "/repo--ready", Branch: "ready"},
+			PR:       &gh.PR{Number: 25, State: "OPEN"},
+			State:    StateActive,
+			Selected: true,
+		},
+		{
+			Worktree: git.Worktree{Path: "/repo--draft", Branch: "draft"},
+			PR:       &gh.PR{Number: 26, State: "OPEN", IsDraft: true},
+			State:    StateDraft,
+			Selected: true,
+		},
+		{
+			Worktree: git.Worktree{Path: "/repo--merged", Branch: "merged"},
+			PR:       &gh.PR{Number: 24, State: "MERGED"},
+			State:    StateMerged,
+			Selected: true,
+		},
+		{
+			Worktree: git.Worktree{Path: "/repo--unselected", Branch: "unselected"},
+			PR:       &gh.PR{Number: 27, State: "OPEN"},
+			State:    StateActive,
+		},
+	}
+
+	view := stripANSI(m.View())
+	for _, want := range []string{"Open PR warning", "ready", "#25 open", "draft", "#26 open (draft)"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("open-PR confirmation missing %q: %q", want, view)
+		}
+	}
+	for _, unwanted := range []string{"#24", "#27", "unselected"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("open-PR confirmation unexpectedly contains %q: %q", unwanted, view)
+		}
 	}
 }
 

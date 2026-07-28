@@ -20,6 +20,7 @@ const (
 	phaseLoad phase = iota
 	phaseList
 	phaseConfirm
+	phaseConfirmOpenPR
 	phaseCleanup
 	phaseDone
 	phaseHelp
@@ -151,6 +152,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateList(msg)
 	case phaseConfirm:
 		return m.updateConfirm(msg)
+	case phaseConfirmOpenPR:
+		return m.updateConfirmOpenPR(msg)
 	case phaseDone:
 		return m.updateDone(msg)
 	case phaseHelp:
@@ -294,7 +297,7 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rows[m.cursor].Selected = !m.rows[m.cursor].Selected
 			}
 		case key.Matches(msg, m.keys.ToggleAll):
-			m = m.toggleAllVisible()
+			m = m.toggleMergedClosedVisible()
 		case key.Matches(msg, m.keys.All):
 			for i := range m.rows {
 				if m.rows[i].Cleanable {
@@ -482,6 +485,10 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch {
 		case key.Matches(msg, m.keys.Enter):
+			if len(m.selectedOpenPRRows()) > 0 {
+				m.phase = phaseConfirmOpenPR
+				return m, nil
+			}
 			m.phase = phaseCleanup
 			return m, tea.Batch(m.spinner.Tick, doCleanup(m.repoPath, m.rows))
 		case key.Matches(msg, m.keys.Back):
@@ -489,6 +496,29 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) updateConfirmOpenPR(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch {
+		case key.Matches(msg, m.keys.Enter):
+			m.phase = phaseCleanup
+			return m, tea.Batch(m.spinner.Tick, doCleanup(m.repoPath, m.rows))
+		case key.Matches(msg, m.keys.Back):
+			m.phase = phaseConfirm
+		}
+	}
+	return m, nil
+}
+
+func (m model) selectedOpenPRRows() []WorktreeRow {
+	var rows []WorktreeRow
+	for _, row := range m.rows {
+		if row.Selected && row.PR != nil && strings.EqualFold(row.PR.State, "OPEN") {
+			rows = append(rows, row)
+		}
+	}
+	return rows
 }
 
 func (m model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -537,6 +567,8 @@ func (m model) View() string {
 		return m.viewList()
 	case phaseConfirm:
 		return m.viewConfirm()
+	case phaseConfirmOpenPR:
+		return m.viewConfirmOpenPR()
 	case phaseCleanup:
 		return m.viewCleanup()
 	case phaseDone:
@@ -588,7 +620,7 @@ func (m model) viewList() string {
 
 	for i := start; i < end; i++ {
 		isCursor := i == m.cursor
-		b.WriteString("  " + RenderRow(m.rows[i], isCursor, m.maxBranch, m.maxStatus) + "\n")
+		b.WriteString("  " + RenderRow(m.rows[i], isCursor, m.maxBranch, m.maxStatus, m.width-rowIndentWidth) + "\n")
 	}
 
 	// Scroll indicators
@@ -608,7 +640,7 @@ func (m model) viewList() string {
 		b.WriteString("  " + filterActiveStyle.Render(fmt.Sprintf("filter: %s", m.filterText)) +
 			"  " + helpStyle.Render("[/] edit  [esc] clear") + "\n")
 	} else {
-		b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [ctrl+a] all  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [/] filter  [?] help  [q]uit") + "\n")
+		b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [ctrl+a] merged/closed  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [/] filter  [?] help  [q]uit") + "\n")
 	}
 
 	return b.String()
@@ -645,6 +677,36 @@ func (m model) viewConfirm() string {
 	b.WriteString("  " + dimStyle.Render("This will: git worktree remove <path> && git branch -D <branch>") + "\n")
 	b.WriteString("\n")
 	b.WriteString("  " + helpStyle.Render("[enter] confirm  [backspace] go back  [q] quit") + "\n")
+
+	return b.String()
+}
+
+func (m model) viewConfirmOpenPR() string {
+	var b strings.Builder
+	openRows := m.selectedOpenPRRows()
+
+	b.WriteString("\n")
+	b.WriteString("  " + errorStyle.Render(fmt.Sprintf(
+		"Open PR warning: %d selected worktree(s) still have an open PR:",
+		len(openRows),
+	)) + "\n")
+	b.WriteString("\n")
+
+	for _, row := range openRows {
+		status := fmt.Sprintf("#%d open", row.PR.Number)
+		if row.PR.IsDraft {
+			status += " (draft)"
+		}
+		b.WriteString("  " + warningStyle.Render("!") + " " +
+			branchStyle.Render(BranchLabel(row)) + "  " +
+			stateOpenStyle.Render(status) + "  " +
+			pathStyle.Render(CompressPath(row.Worktree.Path)) + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString("  " + warningStyle.Render("Confirming will remove these worktrees and delete their local branches.") + "\n")
+	b.WriteString("\n")
+	b.WriteString("  " + helpStyle.Render("[enter] confirm open-PR cleanup  [backspace] previous confirmation  [q] quit") + "\n")
 
 	return b.String()
 }
@@ -728,7 +790,7 @@ func (m model) viewHelp() string {
 
 	b.WriteString("  " + helpSectionStyle.Render("Selection") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("space") + "       " + helpDescStyle.Render("Toggle selection (cleanable rows only)") + "\n")
-	b.WriteString("  " + helpKeyStyle.Render("ctrl+a") + "      " + helpDescStyle.Render("Select all visible cleanable rows / clear selection") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("ctrl+a") + "      " + helpDescStyle.Render("Toggle visible merged/closed worktrees") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("a") + "           " + helpDescStyle.Render("Select all cleanable worktrees") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("n") + "           " + helpDescStyle.Render("Deselect all") + "\n")
 	b.WriteString("\n")
@@ -863,29 +925,34 @@ func (m model) selectedCount() int {
 	return n
 }
 
-// toggleAllVisible selects every visible cleanable row unless they are all
-// already selected, in which case it clears the visible cleanable selection.
-func (m model) toggleAllVisible() model {
-	cleanable := 0
+// toggleMergedClosedVisible selects every visible merged/closed row unless
+// they are all already selected, in which case it clears only that safe set.
+// Selections in every other state remain untouched.
+func (m model) toggleMergedClosedVisible() model {
+	eligible := 0
 	allSelected := true
 	for _, row := range m.rows {
-		if !row.Cleanable {
+		if !bulkToggleEligible(row) {
 			continue
 		}
-		cleanable++
+		eligible++
 		if !row.Selected {
 			allSelected = false
 		}
 	}
-	if cleanable == 0 {
+	if eligible == 0 {
 		return m
 	}
 	for i := range m.rows {
-		if m.rows[i].Cleanable {
+		if bulkToggleEligible(m.rows[i]) {
 			m.rows[i].Selected = !allSelected
 		}
 	}
 	return m
+}
+
+func bulkToggleEligible(row WorktreeRow) bool {
+	return row.State == StateMerged || row.State == StateClosed
 }
 
 func (m model) cleanableCount() int {

@@ -585,7 +585,7 @@ func TestFilter_CtrlATogglesVisibleRowsAndPreservesHiddenSelection(t *testing.T)
 	updated, _ := m.Update(specialKey(tea.KeyCtrlA))
 	m = updated.(model)
 	if m.rows[0].Selected {
-		t.Fatal("ctrl+a should clear the selected visible cleanable row")
+		t.Fatal("ctrl+a should clear the selected visible merged row")
 	}
 
 	updated, _ = m.Update(specialKey(tea.KeyEscape))

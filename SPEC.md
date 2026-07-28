@@ -29,9 +29,10 @@ If none resolve to a valid git repository, exits with error:
 ## TUI Phases
 
 ```
-Load → List → Confirm → Cleanup → Done
-                                    ↕
-                               Help (overlay)
+Load → List → Confirm ─────────────────────→ Cleanup → Done
+                 └─ selected open PR → Open-PR Confirm ┘
+                                                        ↕
+                                                   Help (overlay)
 ```
 
 | Phase | Description |
@@ -39,6 +40,7 @@ Load → List → Confirm → Cleanup → Done
 | **Load** | Fetches worktrees and PR data concurrently. Shows spinner. |
 | **List** | Main view. Browse worktrees, toggle selection, view status. |
 | **Confirm** | Review selected worktrees before destructive cleanup. |
+| **Open-PR Confirm** | Required second warning when any selected worktree has an open or draft PR. |
 | **Cleanup** | Executes removal. Shows spinner. |
 | **Done** | Summary of results (successes/failures). |
 | **Help** | Overlay accessible from List phase. Returns to previous phase. |
@@ -78,7 +80,7 @@ gwtui distinguishes immutable launch scope from an editable user filter:
 | Key | Action |
 |-----|--------|
 | `space` | Toggle selection (cleanable rows only) |
-| `ctrl+a` | Select all visible cleanable worktrees; press again to clear the visible selection |
+| `ctrl+a` | Toggle all visible merged/closed worktrees; preserve every other selection |
 | `a` | Select all cleanable worktrees |
 | `n` | Deselect all |
 
@@ -87,10 +89,10 @@ gwtui distinguishes immutable launch scope from an editable user filter:
 | Key | Action | Phase |
 |-----|--------|-------|
 | `tab` | Proceed to cleanup confirmation | List |
-| `enter` | Confirm cleanup / quit | Confirm, Done |
+| `enter` | Confirm cleanup / confirm open-PR cleanup / quit | Confirm, Open-PR Confirm, Done |
 | `/` | Edit user filter within launch scope | List |
 | `esc` | Clear user filter; retain repository scope | List, Filter |
-| `backspace` / `delete` / `ctrl+h` | Go back | Confirm, Help |
+| `backspace` / `delete` / `ctrl+h` | Go back | Confirm, Open-PR Confirm, Help |
 | `?` | Toggle help overlay | List, Help |
 | `q` / `ctrl+c` | Quit | All |
 
@@ -102,14 +104,37 @@ gwtui distinguishes immutable launch scope from an editable user filter:
 | `open:draft` | Dim gray | No | PR is open but in draft |
 | `merged` | Green | Yes | PR has been merged |
 | `closed` | Red | Yes | PR has been closed |
-| `no-pr` | Yellow | Yes | No associated PR found |
+| `no-pr` | Yellow | No | No associated PR found; protected from cleanup |
 | `main` | Bright blue, bold | No | Main worktree or default branch |
 
 ### Cleanability Rules
 
 - **Protected (never cleanable):** main worktree, bare repo entries, open PRs, draft PRs
-- **Cleanable:** merged PRs, closed PRs, branches with no PR
+- **Cleanable:** merged PRs and closed PRs
 - Main worktree is identified by: matching the first `worktree` entry path from porcelain output, OR matching the default branch name
+
+Ctrl+A deliberately uses the current display state rather than the broader
+cleanability flag: only visible `merged` and `closed` rows participate in its
+toggle. Selections on every other visible or hidden row are unchanged.
+
+### Cleanup Confirmation Safety
+
+- Every selected cleanup passes through the normal confirmation screen.
+- If any selected row has `PR.State == OPEN`, Enter transitions to a dedicated
+  open-PR warning instead of starting cleanup. Draft PRs are included.
+- The warning lists all affected open PR branches, paths, PR numbers, and draft
+  state. A second Enter starts cleanup; Backspace returns to the first
+  confirmation without changing selection.
+- The open-PR check is independent of cleanability so it also protects stale
+  selection retained across refresh/filter state.
+
+### Cursor Highlight
+
+The active row keeps the leading cursor glyph and adds a background-color 237
+band across the usable terminal width after the two-space list indent. The
+highlight reopens after inner ANSI resets so checkbox, branch, state, separator,
+and path foreground colors remain visible, then ends with a reset to prevent
+style bleed. Non-cursor rows are neither highlighted nor width-padded.
 
 ### Status Column Format
 

@@ -11,6 +11,10 @@ var (
 			Foreground(lipgloss.Color("11")).
 			Bold(true)
 
+	// Background-only so the row's semantic foreground colors remain visible.
+	highlightStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("237"))
+
 	branchStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("14"))
 
