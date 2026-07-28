@@ -11,6 +11,11 @@ triggers:
 
 Builds the gwtui binary from source and installs it.
 
+When installation is part of a manual feature-testing handoff, run these steps
+from the feature worktree containing the exact change to test. In that case,
+being off `main` is expected; identify the installed branch or commit in the
+handoff.
+
 ## Steps
 
 1. Ensure on latest main:
@@ -19,7 +24,9 @@ Builds the gwtui binary from source and installs it.
 git fetch origin main
 ```
 
-Warn the user if the working tree has uncommitted changes or if HEAD is not on main.
+For normal installs, warn the user if the working tree has uncommitted changes
+or if HEAD is not on main. For an explicitly requested feature-test install,
+allow the feature worktree after confirming its identity and intended diff.
 
 2. Run tests:
 
@@ -29,16 +36,16 @@ go test ./...
 
 If tests fail, stop and report the failure. Do not install a broken build.
 
-3. Build and install:
+3. Build and install through the project target:
 
 ```bash
-go build -o ~/.local/bin/gwtui ./cmd/
+make install
 ```
 
 4. Verify the installed binary runs:
 
 ```bash
-gwtui -h
+~/.local/bin/gwtui --help
 ```
 
 Report success with the installed path.

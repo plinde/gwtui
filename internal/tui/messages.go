@@ -15,6 +15,7 @@ const autoRefreshInterval = 15 * time.Second
 type loadDoneMsg struct {
 	worktrees []git.Worktree
 	prs       map[string]*gh.PR
+	rows      []WorktreeRow
 	err       error
 }
 
@@ -26,40 +27,8 @@ type cleanupDoneMsg struct {
 // doLoad fetches worktrees and PR data concurrently.
 func doLoad(repoPath string) tea.Cmd {
 	return func() tea.Msg {
-		type wtResult struct {
-			wts []git.Worktree
-			err error
-		}
-		type prResult struct {
-			prs map[string]*gh.PR
-			err error
-		}
-
-		wtCh := make(chan wtResult, 1)
-		prCh := make(chan prResult, 1)
-
-		go func() {
-			wts, err := git.List(repoPath)
-			wtCh <- wtResult{wts, err}
-		}()
-		go func() {
-			prs, err := gh.PRsByBranch(repoPath)
-			prCh <- prResult{prs, err}
-		}()
-
-		wt := <-wtCh
-		pr := <-prCh
-
-		if wt.err != nil {
-			return loadDoneMsg{err: wt.err}
-		}
-		// PR errors are non-fatal — we just won't have PR info
-		prs := pr.prs
-		if prs == nil {
-			prs = make(map[string]*gh.PR)
-		}
-
-		return loadDoneMsg{worktrees: wt.wts, prs: prs}
+		rows, _, err := LoadRows(repoPath)
+		return loadDoneMsg{rows: rows, err: err}
 	}
 }
 
@@ -70,6 +39,7 @@ type autoRefreshTickMsg struct{}
 type autoRefreshDoneMsg struct {
 	worktrees []git.Worktree
 	prs       map[string]*gh.PR
+	rows      []WorktreeRow
 	err       error
 }
 
@@ -83,39 +53,8 @@ func scheduleAutoRefresh() tea.Cmd {
 // doAutoRefresh performs the same loading as doLoad but returns autoRefreshDoneMsg.
 func doAutoRefresh(repoPath string) tea.Cmd {
 	return func() tea.Msg {
-		type wtResult struct {
-			wts []git.Worktree
-			err error
-		}
-		type prResult struct {
-			prs map[string]*gh.PR
-			err error
-		}
-
-		wtCh := make(chan wtResult, 1)
-		prCh := make(chan prResult, 1)
-
-		go func() {
-			wts, err := git.List(repoPath)
-			wtCh <- wtResult{wts, err}
-		}()
-		go func() {
-			prs, err := gh.PRsByBranch(repoPath)
-			prCh <- prResult{prs, err}
-		}()
-
-		wt := <-wtCh
-		pr := <-prCh
-
-		if wt.err != nil {
-			return autoRefreshDoneMsg{err: wt.err}
-		}
-		prs := pr.prs
-		if prs == nil {
-			prs = make(map[string]*gh.PR)
-		}
-
-		return autoRefreshDoneMsg{worktrees: wt.wts, prs: prs}
+		rows, _, err := LoadRows(repoPath)
+		return autoRefreshDoneMsg{rows: rows, err: err}
 	}
 }
 
@@ -143,7 +82,11 @@ func doCleanup(repoPath string, rows []WorktreeRow) tea.Cmd {
 
 		var results []git.CleanupResult
 		for _, r := range selected {
-			result := git.RemoveWorktree(repoPath, r.Worktree)
+			ownerPath := r.Worktree.RepoPath
+			if ownerPath == "" {
+				ownerPath = repoPath
+			}
+			result := git.RemoveWorktree(ownerPath, r.Worktree)
 			results = append(results, result)
 		}
 		return cleanupDoneMsg{results: results}

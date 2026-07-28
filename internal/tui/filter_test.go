@@ -35,6 +35,89 @@ func TestFilterRows_ByBranch(t *testing.T) {
 	}
 }
 
+func TestFilterRows_ByRepositoryName(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "api", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "main"}, State: StateMain},
+	}
+	result := filterRows(rows, "web")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 row matching repository name 'web', got %d", len(result))
+	}
+	if result[0].Worktree.RepoName != "web" {
+		t.Errorf("expected web repo, got %s", result[0].Worktree.RepoName)
+	}
+}
+
+func TestFilterRows_ByOrgWideBranchLabel(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "api", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "feature/login"}, State: StateNoPR},
+	}
+	result := filterRows(rows, "web:feature")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 row matching org-wide branch label, got %d", len(result))
+	}
+	if got := BranchLabel(result[0]); got != "web:feature/login" {
+		t.Errorf("expected web:feature/login, got %s", got)
+	}
+}
+
+func TestFilterRows_ByScopedRepository(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "infrastructure", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "infrastructure-fix"}, State: StateMerged},
+	}
+	result := filterRows(rows, "repo:INFRA")
+	if len(result) != 1 || result[0].Worktree.RepoName != "infrastructure" {
+		t.Fatalf("repo filter returned %#v", result)
+	}
+}
+
+func TestFilterRows_OperandsAreAnded(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "infrastructure", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "infrastructure", Branch: "cleanup"}, State: StateMerged},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "cleanup"}, State: StateMerged},
+	}
+	result := filterRows(rows, "repo:infra merged")
+	if len(result) != 1 || result[0].Worktree.Branch != "cleanup" {
+		t.Fatalf("AND filter returned %#v", result)
+	}
+}
+
+func TestFilterRows_NegatedRepository(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "infrastructure", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "main"}, State: StateMain},
+	}
+	result := filterRows(rows, "-repo:infra")
+	if len(result) != 1 || result[0].Worktree.RepoName != "web" {
+		t.Fatalf("negated repo filter returned %#v", result)
+	}
+}
+
+func TestFilterRows_IncompleteRepositoryOperandIsIgnored(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "api", Branch: "main"}, State: StateMain},
+		{Worktree: git.Worktree{RepoName: "web", Branch: "main"}, State: StateMain},
+	}
+	if got := filterRows(rows, "repo:"); len(got) != len(rows) {
+		t.Fatalf("incomplete repo operand returned %d rows, want %d", len(got), len(rows))
+	}
+}
+
+func TestFilterRows_UnknownFieldRemainsBareTerm(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{Branch: "topic:one"}, State: StateNoPR},
+		{Worktree: git.Worktree{Branch: "other"}, State: StateNoPR},
+	}
+	result := filterRows(rows, "topic:one")
+	if len(result) != 1 || result[0].Worktree.Branch != "topic:one" {
+		t.Fatalf("unknown field compatibility returned %#v", result)
+	}
+}
+
 func TestFilterRows_CaseInsensitive(t *testing.T) {
 	rows := []WorktreeRow{
 		makeRow("Alpha", StateNoPR, nil),
@@ -111,16 +194,17 @@ func newFilterableModel() model {
 	allRows := make([]WorktreeRow, len(rows))
 	copy(allRows, rows)
 	return model{
-		phase:     phaseList,
-		repoPath:  "/repo",
-		keys:      defaultKeyMap(),
-		rows:      rows,
-		allRows:   allRows,
-		cursor:    0,
-		maxBranch: 7,
-		maxStatus: 6,
-		width:     80,
-		height:    24,
+		phase:       phaseList,
+		repoPath:    "/repo",
+		keys:        defaultKeyMap(),
+		rows:        rows,
+		allRows:     allRows,
+		cursor:      0,
+		maxBranch:   7,
+		maxStatus:   6,
+		width:       80,
+		height:      24,
+		filterInput: newFilterInput(""),
 	}
 }
 
@@ -138,38 +222,39 @@ func TestFilter_SlashEntersFilterMode(t *testing.T) {
 	}
 }
 
-func TestFilter_TypingFiltersRows(t *testing.T) {
+func TestFilter_TypingDoesNotApplyUntilAccepted(t *testing.T) {
 	m := newFilterableModel()
-	m.filtering = true
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
 
 	// Type "alpha"
 	for _, r := range "alpha" {
-		updated, _ := m.Update(runeKey(r))
+		updated, _ = m.Update(runeKey(r))
 		m = updated.(model)
 	}
 
-	if m.filterText != "alpha" {
-		t.Errorf("expected filterText='alpha', got %q", m.filterText)
+	if m.filterInput.Value() != "alpha" {
+		t.Errorf("expected editor value 'alpha', got %q", m.filterInput.Value())
 	}
-	if len(m.rows) != 1 {
-		t.Errorf("expected 1 filtered row, got %d", len(m.rows))
+	if m.filterText != "" {
+		t.Errorf("typing unexpectedly changed applied filter to %q", m.filterText)
 	}
-	if m.rows[0].Worktree.Branch != "alpha" {
-		t.Errorf("expected alpha row, got %s", m.rows[0].Worktree.Branch)
+	if len(m.rows) != 4 {
+		t.Errorf("expected full list while editing, got %d rows", len(m.rows))
 	}
 }
 
 func TestFilter_BackspaceRemovesChar(t *testing.T) {
 	m := newFilterableModel()
 	m.filtering = true
-	m.filterText = "alph"
-	m = m.applyFilter()
+	m.filterInput = newFilterInput("alph")
+	m.filterInput.Focus()
 
 	updated, _ := m.Update(specialKey(tea.KeyBackspace))
 	um := updated.(model)
 
-	if um.filterText != "alp" {
-		t.Errorf("expected filterText='alp', got %q", um.filterText)
+	if um.filterInput.Value() != "alp" {
+		t.Errorf("expected editor value 'alp', got %q", um.filterInput.Value())
 	}
 }
 
@@ -198,11 +283,14 @@ func TestFilter_EscCancelsFilter(t *testing.T) {
 
 func TestFilter_TabLocksFilter(t *testing.T) {
 	m := newFilterableModel()
-	m.filtering = true
-	m.filterText = "alpha"
-	m = m.applyFilter()
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
+	for _, r := range "alpha" {
+		updated, _ = m.Update(runeKey(r))
+		m = updated.(model)
+	}
 
-	updated, _ := m.Update(specialKey(tea.KeyTab))
+	updated, _ = m.Update(specialKey(tea.KeyTab))
 	um := updated.(model)
 
 	if um.filtering {
@@ -210,6 +298,9 @@ func TestFilter_TabLocksFilter(t *testing.T) {
 	}
 	if !um.filterLocked {
 		t.Error("expected filterLocked=true after Tab")
+	}
+	if um.filterText != "alpha" {
+		t.Errorf("expected applied filter alpha, got %q", um.filterText)
 	}
 	if len(um.rows) != 1 {
 		t.Errorf("expected 1 filtered row after Tab lock, got %d", len(um.rows))
@@ -256,18 +347,22 @@ func TestFilter_SlashReentersFilterWhenLocked(t *testing.T) {
 	if um.filterText != "alpha" {
 		t.Errorf("expected filterText='alpha' preserved, got %q", um.filterText)
 	}
+	if um.filterInput.Value() != "alpha" {
+		t.Errorf("expected editor seeded with alpha, got %q", um.filterInput.Value())
+	}
 }
 
 func TestFilter_QuitBlockedDuringFilter(t *testing.T) {
 	m := newFilterableModel()
-	m.filtering = true
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
 
 	// 'q' should be treated as text input, not quit
 	updated, cmd := m.Update(runeKey('q'))
 	um := updated.(model)
 
-	if um.filterText != "q" {
-		t.Errorf("expected 'q' added to filter, got %q", um.filterText)
+	if um.filterInput.Value() != "q" {
+		t.Errorf("expected 'q' added to editor, got %q", um.filterInput.Value())
 	}
 	if cmd != nil {
 		// Verify it's not a quit command
@@ -374,12 +469,15 @@ func TestFilter_SelectionsPreservedOnTabLock(t *testing.T) {
 	m.rows[2].Selected = true
 	m.allRows[2].Selected = true
 
-	// Filter to only show alpha, then Tab to lock
-	m.filtering = true
-	m.filterText = "alpha"
-	m = m.applyFilter()
+	// Filter to only show alpha, then Tab to lock.
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
+	for _, r := range "alpha" {
+		updated, _ = m.Update(runeKey(r))
+		m = updated.(model)
+	}
 
-	updated, _ := m.Update(specialKey(tea.KeyTab))
+	updated, _ = m.Update(specialKey(tea.KeyTab))
 	um := updated.(model)
 
 	// Now clear filter with Esc — bravo should still be selected
@@ -418,14 +516,14 @@ func TestFilter_CtrlCQuitsDuringFilter(t *testing.T) {
 
 func TestFilter_BackspaceOnEmptyText(t *testing.T) {
 	m := newFilterableModel()
-	m.filtering = true
-	m.filterText = ""
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
 
-	updated, _ := m.Update(specialKey(tea.KeyBackspace))
+	updated, _ = m.Update(specialKey(tea.KeyBackspace))
 	um := updated.(model)
 
-	if um.filterText != "" {
-		t.Errorf("expected empty filterText after backspace on empty, got %q", um.filterText)
+	if um.filterInput.Value() != "" {
+		t.Errorf("expected empty editor after backspace on empty, got %q", um.filterInput.Value())
 	}
 	// Should still show all rows
 	if len(um.rows) != 4 {
@@ -433,24 +531,61 @@ func TestFilter_BackspaceOnEmptyText(t *testing.T) {
 	}
 }
 
-func TestFilter_EnterIgnoredDuringFilter(t *testing.T) {
+func TestFilter_EditorSupportsCursorInsertion(t *testing.T) {
 	m := newFilterableModel()
-	m.filtering = true
-	m.filterText = "alpha"
-	m = m.applyFilter()
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
+	for _, r := range "repo:infra" {
+		updated, _ = m.Update(runeKey(r))
+		m = updated.(model)
+	}
+	m.filterInput.SetCursor(0)
+
+	updated, _ = m.Update(runeKey('-'))
+	m = updated.(model)
+	if m.filterInput.Value() != "-repo:infra" {
+		t.Fatalf("cursor insertion produced %q, want -repo:infra", m.filterInput.Value())
+	}
+}
+
+func TestFilter_AppliedQueryReturnsNormalListControls(t *testing.T) {
+	m := newFilterableModel()
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
+	for _, r := range "a" {
+		updated, _ = m.Update(runeKey(r))
+		m = updated.(model)
+	}
+	updated, _ = m.Update(specialKey(tea.KeyEnter))
+	m = updated.(model)
+
+	updated, _ = m.Update(specialKey(tea.KeyDown))
+	m = updated.(model)
+	if m.cursor != 1 {
+		t.Fatalf("Down after filter apply left cursor at %d, want 1", m.cursor)
+	}
+}
+
+func TestFilter_EnterAppliesFilterAndReturnsToList(t *testing.T) {
+	m := newFilterableModel()
+	updated, _ := m.Update(runeKey('/'))
+	m = updated.(model)
+	for _, r := range "alpha" {
+		updated, _ = m.Update(runeKey(r))
+		m = updated.(model)
+	}
 
 	updated, cmd := m.Update(specialKey(tea.KeyEnter))
 	um := updated.(model)
 
-	// Enter should be silently ignored during filter input
-	if um.jumpPath != "" {
-		t.Error("expected no jumpPath during filter mode")
+	if um.filtering || !um.filterLocked {
+		t.Fatalf("Enter did not apply filter: filtering=%v locked=%v", um.filtering, um.filterLocked)
 	}
-	if cmd != nil {
-		msg := cmd()
-		if _, ok := msg.(tea.QuitMsg); ok {
-			t.Error("Enter should not quit during filter mode")
-		}
+	if um.filterText != "alpha" || len(um.rows) != 1 || um.rows[0].Worktree.Branch != "alpha" {
+		t.Fatalf("Enter applied wrong filter: text=%q rows=%#v", um.filterText, um.rows)
+	}
+	if um.jumpPath != "" || cmd != nil {
+		t.Fatal("Enter-to-apply must not jump or quit")
 	}
 }
 

@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -16,31 +14,34 @@ import (
 var version = "dev"
 
 func main() {
-	var repoPath string
+	var orgArg string
+	var repoArg string
 	var noTUI bool
 
 	rootCmd := &cobra.Command{
-		Use:     "gwtui [path]",
-		Short:   "Git Worktree TUI Manager",
-		Long:    "Interactive TUI for managing git worktrees with GitHub PR status enrichment.",
-		Version: version,
+		Use:          "gwtui [path]",
+		Short:        "Git Worktree TUI Manager",
+		Long:         "Interactive TUI for managing git worktrees with GitHub PR status enrichment.\n\nFrom a github.com/<org> root, gwtui loads direct child checkouts. From inside one of those repositories, it loads the same org-wide view with that repository filtered.",
+		Version:      version,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var positional string
 			if len(args) > 0 {
-				repoPath = args[0]
+				positional = args[0]
 			}
-			if repoPath == "" {
-				p, err := gitRepoRoot()
-				if err != nil {
-					return fmt.Errorf("not in a git repository (use --repo or pass a path)")
-				}
-				repoPath = p
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			scope, err := resolveLaunch(cwd, positional, orgArg, repoArg)
+			if err != nil {
+				return err
 			}
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
-				return cli.Print(repoPath)
+				return cli.Print(scope.targetPath, scope.initialFilter)
 			}
-			jumpPath, err := tui.Run(repoPath)
+			jumpPath, err := tui.Run(scope.targetPath, scope.initialFilter)
 			if err != nil {
 				return err
 			}
@@ -51,7 +52,8 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVar(&repoPath, "repo", "", "path to git repository (default: current repo)")
+	rootCmd.Flags().StringVar(&orgArg, "org", "", "GitHub org name or path to an org root")
+	rootCmd.Flags().StringVar(&repoArg, "repo", "", "initial repository filter with --org; otherwise repository/org-root path (legacy)")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
 
 	initCmd := &cobra.Command{
@@ -89,12 +91,3 @@ gw() {
   fi
 }
 `
-
-func gitRepoRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -24,16 +25,17 @@ func newTestModel() model {
 	rowsCopy := make([]WorktreeRow, len(rows))
 	copy(rowsCopy, rows)
 	return model{
-		phase:     phaseList,
-		repoPath:  "/repo",
-		keys:      defaultKeyMap(),
-		rows:      rows,
-		allRows:   rowsCopy,
-		cursor:    1, // first cleanable
-		maxBranch: 4,
-		maxStatus: 5,
-		width:     80,
-		height:    24,
+		phase:       phaseList,
+		repoPath:    "/repo",
+		keys:        defaultKeyMap(),
+		rows:        rows,
+		allRows:     rowsCopy,
+		cursor:      1, // first cleanable
+		maxBranch:   4,
+		maxStatus:   5,
+		width:       80,
+		height:      24,
+		filterInput: newFilterInput(""),
 	}
 }
 
@@ -237,6 +239,51 @@ func TestLoadDone_CursorOnFirstCleanable(t *testing.T) {
 	}
 }
 
+func TestLoadDone_AppliesInitialRepositoryFilter(t *testing.T) {
+	m := model{
+		phase:        phaseLoad,
+		keys:         defaultKeyMap(),
+		sortCol:      SortNone,
+		filterText:   "repo:infrastructure",
+		filterLocked: true,
+		filterInput:  newFilterInput("repo:infrastructure"),
+	}
+	msg := loadDoneMsg{rows: []WorktreeRow{
+		{Worktree: git.Worktree{Path: "/org/infrastructure", RepoName: "infrastructure", Branch: "main"}},
+		{Worktree: git.Worktree{Path: "/org/web", RepoName: "web", Branch: "main"}},
+	}}
+
+	updated, _ := m.Update(msg)
+	got := updated.(model)
+	if len(got.rows) != 1 || got.rows[0].Worktree.RepoName != "infrastructure" {
+		t.Fatalf("initial repo filter returned %#v", got.rows)
+	}
+}
+
+func TestAutoRefreshPreservesSelectionByPathAcrossRepositories(t *testing.T) {
+	m := model{
+		phase: phaseList,
+		keys:  defaultKeyMap(),
+		allRows: []WorktreeRow{
+			{Worktree: git.Worktree{Path: "/org/api--feature", RepoName: "api", Branch: "feature"}, Selected: true},
+			{Worktree: git.Worktree{Path: "/org/web--feature", RepoName: "web", Branch: "feature"}},
+		},
+	}
+	m.rows = append([]WorktreeRow(nil), m.allRows...)
+
+	updated, _ := m.handleAutoRefreshDone(autoRefreshDoneMsg{rows: []WorktreeRow{
+		{Worktree: git.Worktree{Path: "/org/api--feature", RepoName: "api", Branch: "feature"}},
+		{Worktree: git.Worktree{Path: "/org/web--feature", RepoName: "web", Branch: "feature"}},
+	}})
+	got := updated.(model)
+	if !got.allRows[0].Selected {
+		t.Fatal("selected api worktree lost selection after refresh")
+	}
+	if got.allRows[1].Selected {
+		t.Fatal("same-named web branch incorrectly inherited api selection")
+	}
+}
+
 // ---------- List phase key events ----------
 
 func TestList_SpaceTogglesSelection(t *testing.T) {
@@ -303,6 +350,97 @@ func TestList_JK_VimKeys(t *testing.T) {
 	um = updated.(model)
 	if um.cursor != 1 {
 		t.Errorf("expected cursor=1 after 'k', got %d", um.cursor)
+	}
+}
+
+func TestList_HomeEndAndVimAliases(t *testing.T) {
+	m := newTestModel()
+	m.cursor = 1
+
+	updated, _ := m.Update(specialKey(tea.KeyEnd))
+	m = updated.(model)
+	if m.cursor != len(m.rows)-1 {
+		t.Fatalf("End cursor = %d, want %d", m.cursor, len(m.rows)-1)
+	}
+
+	updated, _ = m.Update(runeKey('g'))
+	m = updated.(model)
+	if m.cursor != 0 {
+		t.Fatalf("g cursor = %d, want 0", m.cursor)
+	}
+
+	updated, _ = m.Update(runeKey('G'))
+	m = updated.(model)
+	if m.cursor != len(m.rows)-1 {
+		t.Fatalf("G cursor = %d, want %d", m.cursor, len(m.rows)-1)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyHome))
+	m = updated.(model)
+	if m.cursor != 0 {
+		t.Fatalf("Home cursor = %d, want 0", m.cursor)
+	}
+}
+
+func TestList_PageNavigationUsesVisibleRows(t *testing.T) {
+	m := newTestModel()
+	m.rows = make([]WorktreeRow, 30)
+	m.allRows = make([]WorktreeRow, 30)
+	for i := range m.rows {
+		m.rows[i].Worktree.Path = fmt.Sprintf("/repo/%02d", i)
+		m.allRows[i] = m.rows[i]
+	}
+	m.height = 20 // 20 - 5 header - 3 footer = 12 rows per page
+	m.cursor = 0
+
+	updated, _ := m.Update(specialKey(tea.KeyPgDown))
+	m = updated.(model)
+	if m.cursor != 12 {
+		t.Fatalf("PageDown cursor = %d, want 12", m.cursor)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyPgDown))
+	m = updated.(model)
+	if m.cursor != 24 {
+		t.Fatalf("second PageDown cursor = %d, want 24", m.cursor)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyPgDown))
+	m = updated.(model)
+	if m.cursor != 29 {
+		t.Fatalf("clamped PageDown cursor = %d, want 29", m.cursor)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyPgUp))
+	m = updated.(model)
+	if m.cursor != 17 {
+		t.Fatalf("PageUp cursor = %d, want 17", m.cursor)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyCtrlB))
+	m = updated.(model)
+	if m.cursor != 5 {
+		t.Fatalf("Ctrl+B cursor = %d, want 5", m.cursor)
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyCtrlF))
+	m = updated.(model)
+	if m.cursor != 17 {
+		t.Fatalf("Ctrl+F cursor = %d, want 17", m.cursor)
+	}
+}
+
+func TestList_NavigationClampsEmptyRows(t *testing.T) {
+	m := newTestModel()
+	m.rows = nil
+	m.allRows = nil
+
+	for _, key := range []tea.KeyType{tea.KeyEnd, tea.KeyPgDown, tea.KeyPgUp, tea.KeyHome} {
+		updated, _ := m.Update(specialKey(key))
+		m = updated.(model)
+		if m.cursor != 0 {
+			t.Fatalf("key %v left empty-list cursor at %d", key, m.cursor)
+		}
 	}
 }
 
@@ -774,8 +912,8 @@ func newSortableModel() model {
 		allRows:      rowsCopy,
 		unsortedRows: rows,
 		cursor:       1,
-		maxBranch:     7,
-		maxStatus:     6,
+		maxBranch:    7,
+		maxStatus:    6,
 		sortCol:      SortBranch,
 		sortDir:      SortAsc,
 		width:        80,

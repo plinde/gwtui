@@ -74,6 +74,22 @@ func TestSortRows_BranchDesc(t *testing.T) {
 	}
 }
 
+func TestSortRows_BranchUsesOrgWideLabel(t *testing.T) {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{RepoName: "web", Branch: "main"}, State: StateNoPR},
+		{Worktree: git.Worktree{RepoName: "api", Branch: "main"}, State: StateNoPR},
+		{Worktree: git.Worktree{RepoName: "api", Branch: "feature"}, State: StateNoPR},
+	}
+	sorted := sortRows(rows, SortBranch, SortAsc)
+
+	want := []string{"api:feature", "api:main", "web:main"}
+	for i, label := range want {
+		if got := BranchLabel(sorted[i]); got != label {
+			t.Errorf("position %d: expected %s, got %s", i, label, got)
+		}
+	}
+}
+
 func TestSortRows_PRNumAsc(t *testing.T) {
 	rows := []WorktreeRow{
 		makeRow("c", StateMerged, &gh.PR{Number: 50}),

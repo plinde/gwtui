@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/plinde/gwtui/internal/git"
@@ -92,10 +94,61 @@ func TestDoCleanup_FiltersSelected(t *testing.T) {
 	}
 }
 
+func TestDoCleanup_UsesWorktreeRepoPath(t *testing.T) {
+	root := t.TempDir()
+	repoPath := filepath.Join(root, "owner")
+	wrongRepoPath := filepath.Join(root, "wrong")
+	worktreePath := filepath.Join(root, "owner--feature")
+	if err := os.Mkdir(repoPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(wrongRepoPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepo(t, repoPath)
+	runGitForTUITest(t, repoPath, "worktree", "add", "-b", "feature", worktreePath)
+
+	rows := []WorktreeRow{
+		{
+			Worktree: git.Worktree{
+				Path:     worktreePath,
+				Branch:   "feature",
+				RepoPath: repoPath,
+			},
+			Selected: true,
+		},
+	}
+
+	cmd := doCleanup(wrongRepoPath, rows)
+	msg := cmd()
+	done, ok := msg.(cleanupDoneMsg)
+	if !ok {
+		t.Fatalf("expected cleanupDoneMsg, got %T", msg)
+	}
+	if len(done.results) != 1 {
+		t.Fatalf("expected 1 cleanup result, got %d", len(done.results))
+	}
+	if !done.results[0].Success {
+		t.Fatalf("expected cleanup through row RepoPath to succeed, got error: %s", done.results[0].Error)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("expected worktree path to be removed, stat err=%v", err)
+	}
+}
+
 func TestDoLoad_ReturnsNonNilCmd(t *testing.T) {
 	cmd := doLoad("/tmp/fakerepo")
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from doLoad")
+	}
+}
+
+func runGitForTUITest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
 	}
 }
 
@@ -117,12 +170,11 @@ func TestDoLoad_WithTempGitRepo(t *testing.T) {
 	if done.err != nil {
 		t.Fatalf("unexpected error: %v", done.err)
 	}
-	if len(done.worktrees) == 0 {
-		t.Error("expected at least one worktree from initialized repo")
+	if len(done.rows) == 0 {
+		t.Error("expected at least one row from initialized repo")
 	}
-	// PRs may be nil map or empty (gh CLI may not be available), but should not cause error in loadDoneMsg
-	if done.prs == nil {
-		t.Error("expected non-nil prs map (even if empty)")
+	if done.rows[0].Worktree.RepoPath != repoPath {
+		t.Errorf("expected row repo path %q, got %q", repoPath, done.rows[0].Worktree.RepoPath)
 	}
 }
 

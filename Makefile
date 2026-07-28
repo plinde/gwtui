@@ -2,13 +2,18 @@ BINARY := gwtui
 BUILD_DIR := bin
 INSTALL_DIR := $(HOME)/.local/bin
 
-.PHONY: build install clean test test-v cover
+.PHONY: all build install clean test test-v cover
+
+all: build ## Build the default artifact
 
 build: ## Build the gwt binary
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd
 
-install: build ## Install gwt to ~/bin
+install: build ## Install gwt to ~/.local/bin
 	cp $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
+ifeq ($(shell uname -s),Darwin)
+	codesign --force --sign - $(INSTALL_DIR)/$(BINARY)
+endif
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR)
