@@ -39,12 +39,12 @@ gwtui /path/to/repo                    # positional repository/org-root path
 gwtui --repo /path/to/repo             # legacy explicit target path
 gwtui --repo /path/to/org              # legacy explicit org-root path
 gwtui --org Opportunistiq              # explicit org, all local checkouts
-gwtui --org Opportunistiq --repo infra # explicit org with initial repo filter
-gwtui --org /path/to/org --repo infra  # explicit org-root path with repo filter
+gwtui --org Opportunistiq --repo infra # explicit org with stable repo scope
+gwtui --org /path/to/org --repo infra  # explicit org-root path with repo scope
 ```
 
 Explicit positional paths cannot be combined with `--org` or `--repo`. With
-`--org`, `--repo` is a repository name used as the initial filter. Without
+`--org`, `--repo` is a repository name used as the stable launch scope. Without
 `--org`, `--repo` keeps its original path meaning.
 
 ### Org Roots
@@ -61,10 +61,11 @@ checkouts:
 
 Running `gwtui` from that directory shows one combined list of worktrees for the
 direct checkouts under the org root. Running from inside one of its repositories
-loads the same org-wide list with `repo:<repository>` already applied; press
-`esc` to reveal the sibling repositories. The org root and repository are
+loads the org data but keeps the TUI scoped to that repository. The repository
+path and a distinct `scope: repo:<repository>` indicator are shown; clearing a
+user filter never reveals sibling repositories. The org root and repository are
 inferred from the conventional `github.com/<org>/<repo>` path, including linked
-worktrees.
+worktrees. To see the org-wide list, launch from the org root or use `--org`.
 
 gwtui is filesystem-driven: it only knows about repositories that are checked
 out as child directories, and it does not query GitHub for repositories that
@@ -107,6 +108,7 @@ discovery, since they are already associated with their owning repository by
 | `<` / `>` | Change sort column |
 | `s` | Reverse sort direction |
 | `/` | Edit filter |
+| `esc` | Clear a user filter; keep repository launch scope |
 | `backspace` | Go back |
 | `?` | Show help |
 | `q` / `ctrl+c` | Quit |
@@ -116,7 +118,9 @@ discovery, since they are already associated with their owning repository by
 Press `/` to open the filter editor. Typing does not change the list until you
 press `enter` or `tab`; applying returns control to the normal list, so arrows,
 selection, jump, sorting, refresh, and cleanup work on the filtered rows. Press
-`/` again to edit the active query, or `esc` to clear it.
+`/` again to edit the active query, or `esc` to clear it. When launched inside a
+repository, filtering is applied within that stable repository scope; `esc`
+never expands the list to sibling repositories.
 
 Whitespace-separated operands are ANDed. Bare operands preserve the original
 case-insensitive substring search across branch label, repository, path, status,

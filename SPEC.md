@@ -47,6 +47,23 @@ Load → List → Confirm → Cleanup → Done
 
 Worktree list (`git`) and PR data (`gh`) are fetched in parallel via goroutines. PR errors are **non-fatal** — the TUI proceeds with empty PR data.
 
+## Launch Scope and Filtering
+
+gwtui distinguishes immutable launch scope from an editable user filter:
+
+- Launching at `.../github.com/<org>` loads all direct repository checkouts and
+  displays the org-root path.
+- Launching inside a direct child repository or one of its linked worktrees
+  loads org data internally but scopes visible rows to the owning repository.
+- `--org <org-or-root> --repo <name>` establishes the same repository scope
+  explicitly.
+- Repository-scoped mode displays the repository path and a separate
+  `scope: repo:<name>` indicator. Scope is never stored in filter input.
+- `/` edits a user filter within the current scope. `enter` or `tab` applies it.
+- `esc` clears a user filter but never removes repository launch scope or
+  reveals sibling repositories. With no user filter, `esc` is a no-op.
+- Org-wide mode remains available by launching at the org root or with `--org`.
+
 ## Keybindings
 
 ### Navigation
@@ -71,6 +88,8 @@ Worktree list (`git`) and PR data (`gh`) are fetched in parallel via goroutines.
 |-----|--------|-------|
 | `tab` | Proceed to cleanup confirmation | List |
 | `enter` | Confirm cleanup / quit | Confirm, Done |
+| `/` | Edit user filter within launch scope | List |
+| `esc` | Clear user filter; retain repository scope | List, Filter |
 | `backspace` / `delete` / `ctrl+h` | Go back | Confirm, Help |
 | `?` | Toggle help overlay | List, Help |
 | `q` / `ctrl+c` | Quit | All |

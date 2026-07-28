@@ -28,12 +28,12 @@ func TestResolveLaunchFromOrgRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope.targetPath != root || scope.initialFilter != "" {
-		t.Fatalf("scope = %#v, want root with no filter", scope)
+	if scope.targetPath != root || scope.displayPath != root || scope.repository != "" {
+		t.Fatalf("scope = %#v, want org-wide root", scope)
 	}
 }
 
-func TestResolveLaunchFromRepositoryInfersOrgAndFilter(t *testing.T) {
+func TestResolveLaunchFromRepositoryInfersStableScope(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "github.com", "Acme")
 	repo := filepath.Join(root, "infrastructure")
 	initLaunchRepo(t, repo)
@@ -45,8 +45,11 @@ func TestResolveLaunchFromRepositoryInfersOrgAndFilter(t *testing.T) {
 	if scope.targetPath != root {
 		t.Fatalf("targetPath = %q, want %q", scope.targetPath, root)
 	}
-	if scope.initialFilter != "repo:infrastructure" {
-		t.Fatalf("initialFilter = %q, want repo:infrastructure", scope.initialFilter)
+	if scope.repository != "infrastructure" {
+		t.Fatalf("repository = %q, want infrastructure", scope.repository)
+	}
+	if !samePath(scope.displayPath, repo) {
+		t.Fatalf("displayPath = %q, want %q", scope.displayPath, repo)
 	}
 }
 
@@ -64,8 +67,11 @@ func TestResolveLaunchFromLinkedWorktreeUsesOwningRepository(t *testing.T) {
 	if scope.targetPath != root {
 		t.Fatalf("targetPath = %q, want %q", scope.targetPath, root)
 	}
-	if scope.initialFilter != "repo:infrastructure" {
-		t.Fatalf("initialFilter = %q, want repo:infrastructure", scope.initialFilter)
+	if scope.repository != "infrastructure" {
+		t.Fatalf("repository = %q, want infrastructure", scope.repository)
+	}
+	if !samePath(scope.displayPath, repo) {
+		t.Fatalf("displayPath = %q, want owning repository %q", scope.displayPath, repo)
 	}
 }
 
@@ -77,7 +83,8 @@ func TestResolveLaunchExplicitOrgAndRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope.targetPath != root || scope.initialFilter != "repo:infrastructure" {
+	if scope.targetPath != root || scope.repository != "infrastructure" ||
+		scope.displayPath != filepath.Join(root, "infrastructure") {
 		t.Fatalf("scope = %#v", scope)
 	}
 }
@@ -91,7 +98,7 @@ func TestResolveLaunchLegacyRepoPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope.targetPath != repo || scope.initialFilter != "" {
+	if scope.targetPath != repo || scope.displayPath != repo || scope.repository != "" {
 		t.Fatalf("scope = %#v, want legacy repo path", scope)
 	}
 }

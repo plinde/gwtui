@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -205,6 +206,114 @@ func newFilterableModel() model {
 		width:       80,
 		height:      24,
 		filterInput: newFilterInput(""),
+	}
+}
+
+func newRepositoryScopedModel() model {
+	rows := []WorktreeRow{
+		{Worktree: git.Worktree{Path: "/org/infrastructure", RepoName: "infrastructure", Branch: "main", IsMain: true}, State: StateMain},
+		{Worktree: git.Worktree{Path: "/org/infrastructure--alpha", RepoName: "infrastructure", Branch: "alpha"}, State: StateMerged, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/org/web", RepoName: "web", Branch: "main", IsMain: true}, State: StateMain},
+	}
+	m := model{
+		phase:       phaseList,
+		repoPath:    "/org",
+		displayPath: "/org/infrastructure",
+		scopeRepo:   "infrastructure",
+		keys:        defaultKeyMap(),
+		allRows:     rows,
+		filterInput: newFilterInput(""),
+		width:       100,
+		height:      24,
+	}
+	m.rows = m.visibleRows()
+	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
+	return m
+}
+
+func TestRepositoryScope_EscapeWithoutUserFilterIsNoOp(t *testing.T) {
+	m := newRepositoryScopedModel()
+
+	updated, _ := m.Update(specialKey(tea.KeyEscape))
+	got := updated.(model)
+
+	if len(got.rows) != 2 {
+		t.Fatalf("escape exposed sibling repositories: %#v", got.rows)
+	}
+	for _, row := range got.rows {
+		if row.Worktree.RepoName != "infrastructure" {
+			t.Fatalf("escape exposed sibling repository %q", row.Worktree.RepoName)
+		}
+	}
+	if got.scopeRepo != "infrastructure" || got.filterLocked || got.filterText != "" {
+		t.Fatalf("escape changed launch scope or filter state: %#v", got)
+	}
+}
+
+func TestRepositoryScope_EscapeClearsOnlyUserFilter(t *testing.T) {
+	m := newRepositoryScopedModel()
+	m.filterText = "alpha"
+	m.filterLocked = true
+	m = m.applyFilter()
+	if len(m.rows) != 1 {
+		t.Fatalf("setup returned %#v", m.rows)
+	}
+
+	updated, _ := m.Update(specialKey(tea.KeyEscape))
+	got := updated.(model)
+
+	if got.filterLocked || got.filterText != "" {
+		t.Fatalf("escape did not clear user filter: %#v", got)
+	}
+	if len(got.rows) != 2 {
+		t.Fatalf("escape did not restore scoped rows: %#v", got.rows)
+	}
+	for _, row := range got.rows {
+		if row.Worktree.RepoName != "infrastructure" {
+			t.Fatalf("escape exposed sibling repository %q", row.Worktree.RepoName)
+		}
+	}
+}
+
+func TestRepositoryScope_FilterEditorDoesNotExposeScopePredicate(t *testing.T) {
+	m := newRepositoryScopedModel()
+
+	updated, _ := m.Update(runeKey('/'))
+	got := updated.(model)
+
+	if !got.filtering {
+		t.Fatal("slash did not enter filter mode")
+	}
+	if got.filterInput.Value() != "" {
+		t.Fatalf("filter editor contains repository scope: %q", got.filterInput.Value())
+	}
+	if len(got.rows) != 2 {
+		t.Fatalf("filter editor exposed sibling repositories: %#v", got.rows)
+	}
+}
+
+func TestRepositoryScope_ViewDistinguishesScopeAndFilter(t *testing.T) {
+	m := newRepositoryScopedModel()
+	view := m.viewList()
+	if !strings.Contains(view, "/org/infrastructure") {
+		t.Fatalf("view does not show repository path: %q", view)
+	}
+	if !strings.Contains(view, "scope: repo:infrastructure") {
+		t.Fatalf("view does not show repository scope: %q", view)
+	}
+	if strings.Contains(view, "[esc] clear") || strings.Contains(view, "filter: repo:infrastructure") {
+		t.Fatalf("view presents repository scope as a clearable filter: %q", view)
+	}
+
+	m.filterText = "alpha"
+	m.filterLocked = true
+	m = m.applyFilter()
+	view = m.viewList()
+	if !strings.Contains(view, "filter: alpha") || !strings.Contains(view, "[esc] clear") {
+		t.Fatalf("view does not show clearable user filter: %q", view)
+	}
+	if !strings.Contains(view, "scope: repo:infrastructure") {
+		t.Fatalf("user filter hid repository scope: %q", view)
 	}
 }
 

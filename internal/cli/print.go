@@ -8,9 +8,10 @@ import (
 	"github.com/plinde/gwtui/internal/tui"
 )
 
-// Print loads worktree and PR data, then writes a plain-text table to stdout.
+// Print loads worktree and PR data, scopes it to repository when provided,
+// then writes a plain-text table to stdout.
 // Errors are printed to stderr.
-func Print(repoPath, filter string) error {
+func Print(repoPath, repository string) error {
 	rows, warnings, err := tui.LoadRows(repoPath)
 	if err != nil {
 		return err
@@ -18,7 +19,15 @@ func Print(repoPath, filter string) error {
 	for _, warning := range warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s: could not fetch PR data: %v\n", warning.Repo.Name, warning.Err)
 	}
-	rows = tui.FilterRows(rows, filter)
+	if repository != "" {
+		scoped := make([]tui.WorktreeRow, 0, len(rows))
+		for _, row := range rows {
+			if strings.EqualFold(row.Worktree.RepoName, repository) {
+				scoped = append(scoped, row)
+			}
+		}
+		rows = scoped
+	}
 	maxBranch, maxStatus := tui.ColumnWidths(rows)
 
 	header := fmt.Sprintf("%-*s  %-*s  %s", maxBranch, "BRANCH", maxStatus, "STATUS", "PATH")

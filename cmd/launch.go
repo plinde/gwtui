@@ -9,8 +9,9 @@ import (
 )
 
 type launchScope struct {
-	targetPath    string
-	initialFilter string
+	targetPath  string
+	displayPath string
+	repository  string
 }
 
 func resolveLaunch(cwd, positional, orgArg, repoArg string) (launchScope, error) {
@@ -18,7 +19,8 @@ func resolveLaunch(cwd, positional, orgArg, repoArg string) (launchScope, error)
 		if orgArg != "" || repoArg != "" {
 			return launchScope{}, fmt.Errorf("path argument cannot be combined with --org or --repo")
 		}
-		return launchScope{targetPath: absoluteFrom(cwd, positional)}, nil
+		path := absoluteFrom(cwd, positional)
+		return launchScope{targetPath: path, displayPath: path}, nil
 	}
 
 	if orgArg != "" {
@@ -29,16 +31,18 @@ func resolveLaunch(cwd, positional, orgArg, repoArg string) (launchScope, error)
 		if strings.ContainsAny(repoArg, `/\`) {
 			return launchScope{}, fmt.Errorf("--repo with --org must be a repository name, not a path")
 		}
-		scope := launchScope{targetPath: root}
+		scope := launchScope{targetPath: root, displayPath: root}
 		if repoArg != "" {
-			scope.initialFilter = "repo:" + repoArg
+			scope.repository = repoArg
+			scope.displayPath = filepath.Join(root, repoArg)
 		}
 		return scope, nil
 	}
 
 	// Backward compatibility: --repo without --org remains a target path.
 	if repoArg != "" {
-		return launchScope{targetPath: absoluteFrom(cwd, repoArg)}, nil
+		path := absoluteFrom(cwd, repoArg)
+		return launchScope{targetPath: path, displayPath: path}, nil
 	}
 
 	return inferLaunchFromCWD(cwd)
@@ -47,18 +51,20 @@ func resolveLaunch(cwd, positional, orgArg, repoArg string) (launchScope, error)
 func inferLaunchFromCWD(cwd string) (launchScope, error) {
 	_, orgRoot, err := inferOrgFromPath(cwd)
 	if err == nil {
-		scope := launchScope{targetPath: orgRoot}
+		scope := launchScope{targetPath: orgRoot, displayPath: orgRoot}
 		if repoRoot, repoErr := owningRepoRoot(cwd); repoErr == nil &&
 			samePath(filepath.Dir(repoRoot), orgRoot) {
-			scope.initialFilter = "repo:" + filepath.Base(repoRoot)
+			scope.repository = filepath.Base(repoRoot)
+			scope.displayPath = repoRoot
 		}
 		return scope, nil
 	}
 
 	if repoRoot, repoErr := gitRepoRootAt(cwd); repoErr == nil {
-		return launchScope{targetPath: repoRoot}, nil
+		return launchScope{targetPath: repoRoot, displayPath: repoRoot}, nil
 	}
-	return launchScope{targetPath: filepath.Clean(cwd)}, nil
+	path := filepath.Clean(cwd)
+	return launchScope{targetPath: path, displayPath: path}, nil
 }
 
 func samePath(a, b string) bool {
