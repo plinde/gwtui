@@ -26,11 +26,13 @@ const (
 )
 
 type model struct {
-	phase     phase
-	prevPhase phase // for returning from help
-	repoPath  string
-	keys      keyMap
-	spinner   spinner.Model
+	phase       phase
+	prevPhase   phase // for returning from help
+	repoPath    string
+	displayPath string
+	scopeRepo   string
+	keys        keyMap
+	spinner     spinner.Model
 
 	rows         []WorktreeRow
 	allRows      []WorktreeRow // full set before filtering
@@ -59,21 +61,21 @@ type model struct {
 
 // Run launches the TUI. Returns the selected worktree path if the user
 // pressed enter to jump, or empty string on normal quit.
-func Run(repoPath, initialFilter string) (string, error) {
+func Run(repoPath, scopePath, scopeRepo string) (string, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
 
 	m := model{
-		phase:        phaseLoad,
-		repoPath:     repoPath,
-		keys:         defaultKeyMap(),
-		spinner:      s,
-		sortCol:      SortState,
-		sortDir:      SortDesc,
-		filterText:   strings.TrimSpace(initialFilter),
-		filterLocked: strings.TrimSpace(initialFilter) != "",
-		filterInput:  newFilterInput(initialFilter),
+		phase:       phaseLoad,
+		repoPath:    repoPath,
+		displayPath: scopePath,
+		scopeRepo:   strings.TrimSpace(scopeRepo),
+		keys:        defaultKeyMap(),
+		spinner:     s,
+		sortCol:     SortState,
+		sortDir:     SortDesc,
+		filterInput: newFilterInput(""),
 	}
 
 	// Render TUI on stderr so stdout stays clean for jump path output.
@@ -174,12 +176,7 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 		m.allRows = make([]WorktreeRow, len(m.unsortedRows))
 		copy(m.allRows, m.unsortedRows)
 	}
-	// Apply filter if locked
-	if m.filterLocked && m.filterText != "" {
-		m.rows = filterRows(m.allRows, m.filterText)
-	} else {
-		m.rows = m.allRows
-	}
+	m.rows = m.visibleRows()
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 	m.phase = phaseList
 	// Start cursor on the first cleanable row
@@ -249,13 +246,9 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 	}
 
 	m.allRows = newRows
-	// An applied filter remains active across refreshes. While editing, the
-	// complete list stays visible until Enter or Tab applies the query.
-	if m.filterLocked && m.filterText != "" {
-		m.rows = filterRows(m.allRows, m.filterText)
-	} else {
-		m.rows = m.allRows
-	}
+	// An applied filter remains active across refreshes. Repository scope is
+	// always applied first and cannot be cleared by filter editing.
+	m.rows = m.visibleRows()
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 
 	// Clamp cursor if list shrank
@@ -335,21 +328,22 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.syncSelectionsToAll()
 			m.filtering = true
 			m.filterLocked = false
-			m.rows = m.allRows
+			m.rows = m.scopedRows()
 			m.filterInput.SetValue(m.filterText)
 			m.filterInput.CursorEnd()
 			m.restoreCursorByPath(cursorPath)
 			return m, m.filterInput.Focus()
 		case msg.Type == tea.KeyEscape:
-			// Clear locked filter
+			// Clear only a user filter; repository launch scope stays active.
 			if m.filterLocked {
+				cursorPath := m.cursorPath()
 				m = m.syncSelectionsToAll()
 				m.filterLocked = false
 				m.filterText = ""
 				m.filterInput.SetValue("")
-				m.rows = m.allRows
+				m.rows = m.scopedRows()
 				m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
-				m.cursor = 0
+				m.restoreCursorByPath(cursorPath)
 			}
 		case key.Matches(msg, m.keys.Help):
 			m.prevPhase = phaseList
@@ -363,16 +357,17 @@ func (m model) updateFilter(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.Type {
 		case tea.KeyEscape:
-			// Cancel and clear: restore the full list.
+			// Cancel and clear the user filter within repository launch scope.
+			cursorPath := m.cursorPath()
 			m = m.syncSelectionsToAll()
 			m.filtering = false
 			m.filterLocked = false
 			m.filterText = ""
 			m.filterInput.SetValue("")
 			m.filterInput.Blur()
-			m.rows = m.allRows
+			m.rows = m.scopedRows()
 			m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
-			m.cursor = 0
+			m.restoreCursorByPath(cursorPath)
 			return m, nil
 
 		case tea.KeyEnter, tea.KeyTab:
@@ -394,16 +389,33 @@ func (m model) updateFilter(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// applyFilter filters allRows by filterText and updates visible rows.
+// applyFilter applies the user filter within immutable repository launch scope.
 func (m model) applyFilter() model {
-	if m.filterText == "" {
-		m.rows = m.allRows
-	} else {
-		m.rows = filterRows(m.allRows, m.filterText)
-	}
+	m.rows = m.visibleRows()
 	m.maxBranch, m.maxStatus = ColumnWidths(m.rows)
 	m.clampCursor()
 	return m
+}
+
+func (m model) scopedRows() []WorktreeRow {
+	if m.scopeRepo == "" {
+		return m.allRows
+	}
+	rows := make([]WorktreeRow, 0, len(m.allRows))
+	for _, row := range m.allRows {
+		if strings.EqualFold(row.Worktree.RepoName, m.scopeRepo) {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+func (m model) visibleRows() []WorktreeRow {
+	rows := m.scopedRows()
+	if m.filterLocked && m.filterText != "" {
+		return filterRows(rows, m.filterText)
+	}
+	return rows
 }
 
 func (m *model) clampCursor() {
@@ -544,7 +556,15 @@ func (m model) viewList() string {
 
 	b.WriteString("\n")
 	b.WriteString("  " + titleStyle.Render("gwtui") + " — Git Worktree Manager\n")
-	b.WriteString("  " + pathStyle.Render(displayPath(m.repoPath)) + "\n")
+	contextPath := m.displayPath
+	if contextPath == "" {
+		contextPath = m.repoPath
+	}
+	b.WriteString("  " + pathStyle.Render(displayPath(contextPath)))
+	if m.scopeRepo != "" {
+		b.WriteString("  " + filterActiveStyle.Render("scope: repo:"+m.scopeRepo))
+	}
+	b.WriteString("\n")
 	b.WriteString("  " + renderHeader(m.sortCol, m.sortDir, m.maxBranch, m.maxStatus) + "\n")
 
 	// Calculate visible area using the same value as PageUp/PageDown.
@@ -723,7 +743,7 @@ func (m model) viewHelp() string {
 	b.WriteString("  " + helpKeyStyle.Render("/") + "           " + helpDescStyle.Render("Open filter input") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("enter/tab") + "   " + helpDescStyle.Render("Apply filter and return to list") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("repo:<name>") + " " + helpDescStyle.Render("Match owning repository") + "\n")
-	b.WriteString("  " + helpKeyStyle.Render("esc") + "         " + helpDescStyle.Render("Clear filter — restore full list") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("esc") + "         " + helpDescStyle.Render("Clear user filter — keep repository scope") + "\n")
 	b.WriteString("\n")
 
 	b.WriteString("  " + helpSectionStyle.Render("Actions") + "\n")
@@ -764,11 +784,7 @@ func (m model) toggleSortDir() model {
 		m.sortDir = SortAsc
 	}
 	m.allRows = sortRows(m.allRows, m.sortCol, m.sortDir)
-	if m.filterLocked && m.filterText != "" {
-		m.rows = filterRows(m.allRows, m.filterText)
-	} else {
-		m.rows = m.allRows
-	}
+	m.rows = m.visibleRows()
 
 	if cursorPath != "" {
 		for i, r := range m.rows {
@@ -821,12 +837,8 @@ func (m model) advanceSort(nextFn func(SortColumn) SortColumn) model {
 		}
 	}
 
-	// Apply filter if active
-	if m.filterLocked && m.filterText != "" {
-		m.rows = filterRows(m.allRows, m.filterText)
-	} else {
-		m.rows = m.allRows
-	}
+	// Reapply repository scope and any active user filter.
+	m.rows = m.visibleRows()
 
 	// Restore cursor position
 	if cursorPath != "" {

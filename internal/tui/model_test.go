@@ -240,14 +240,13 @@ func TestLoadDone_CursorOnFirstCleanable(t *testing.T) {
 	}
 }
 
-func TestLoadDone_AppliesInitialRepositoryFilter(t *testing.T) {
+func TestLoadDone_AppliesRepositoryScopeWithoutUserFilter(t *testing.T) {
 	m := model{
-		phase:        phaseLoad,
-		keys:         defaultKeyMap(),
-		sortCol:      SortNone,
-		filterText:   "repo:infrastructure",
-		filterLocked: true,
-		filterInput:  newFilterInput("repo:infrastructure"),
+		phase:       phaseLoad,
+		keys:        defaultKeyMap(),
+		sortCol:     SortNone,
+		scopeRepo:   "infrastructure",
+		filterInput: newFilterInput(""),
 	}
 	msg := loadDoneMsg{rows: []WorktreeRow{
 		{Worktree: git.Worktree{Path: "/org/infrastructure", RepoName: "infrastructure", Branch: "main"}},
@@ -257,7 +256,10 @@ func TestLoadDone_AppliesInitialRepositoryFilter(t *testing.T) {
 	updated, _ := m.Update(msg)
 	got := updated.(model)
 	if len(got.rows) != 1 || got.rows[0].Worktree.RepoName != "infrastructure" {
-		t.Fatalf("initial repo filter returned %#v", got.rows)
+		t.Fatalf("repository scope returned %#v", got.rows)
+	}
+	if got.filterLocked || got.filterText != "" || got.filterInput.Value() != "" {
+		t.Fatalf("repository scope leaked into user filter state: %#v", got)
 	}
 }
 

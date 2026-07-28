@@ -21,7 +21,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:          "gwtui [path]",
 		Short:        "Git Worktree TUI Manager",
-		Long:         "Interactive TUI for managing git worktrees with GitHub PR status enrichment.\n\nFrom a github.com/<org> root, gwtui loads direct child checkouts. From inside one of those repositories, it loads the same org-wide view with that repository filtered.",
+		Long:         "Interactive TUI for managing git worktrees with GitHub PR status enrichment.\n\nFrom a github.com/<org> root, gwtui loads direct child checkouts. From inside one of those repositories, it stays scoped to that repository while retaining org-aware data internally.",
 		Version:      version,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -39,9 +39,9 @@ func main() {
 				return err
 			}
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
-				return cli.Print(scope.targetPath, scope.initialFilter)
+				return cli.Print(scope.targetPath, scope.repository)
 			}
-			jumpPath, err := tui.Run(scope.targetPath, scope.initialFilter)
+			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository)
 			if err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	rootCmd.Flags().StringVar(&orgArg, "org", "", "GitHub org name or path to an org root")
-	rootCmd.Flags().StringVar(&repoArg, "repo", "", "initial repository filter with --org; otherwise repository/org-root path (legacy)")
+	rootCmd.Flags().StringVar(&repoArg, "repo", "", "repository scope with --org; otherwise repository/org-root path (legacy)")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
 
 	initCmd := &cobra.Command{
