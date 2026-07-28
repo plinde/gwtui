@@ -2,12 +2,21 @@ package tui
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/plinde/gwtui/internal/git"
 	gh "github.com/plinde/gwtui/internal/github"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiRE.ReplaceAllString(s, "")
+}
 
 func TestEnrichWorktrees_MergedPR(t *testing.T) {
 	wts := []git.Worktree{{Path: "/repo--feat", Branch: "feat"}}
@@ -316,7 +325,7 @@ func TestRenderRow_WithCursor(t *testing.T) {
 		Worktree: git.Worktree{Path: "/repo--feat", Branch: "feat"},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, true, 10, 10)
+	out := RenderRow(row, true, 10, 10, 80)
 	if !strings.Contains(out, "▸") {
 		t.Error("expected cursor marker '▸' when isCursor=true")
 	}
@@ -327,9 +336,54 @@ func TestRenderRow_NoCursor(t *testing.T) {
 		Worktree: git.Worktree{Path: "/repo--feat", Branch: "feat"},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if strings.Contains(out, "▸") {
 		t.Error("expected no cursor marker '▸' when isCursor=false")
+	}
+}
+
+func TestCursorHighlightPadsToWidthAndResets(t *testing.T) {
+	got := cursorHighlight("abc", 10)
+	if width := lipgloss.Width(got); width != 10 {
+		t.Fatalf("cursorHighlight visible width = %d, want 10", width)
+	}
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Fatalf("cursorHighlight must end with an ANSI reset: %q", got)
+	}
+}
+
+func TestCursorHighlightPreservesStyledContent(t *testing.T) {
+	styled := branchStyle.Render("feature") + " " + stateMergedStyle.Render("#25 merged")
+	got := stripANSI(cursorHighlight(styled, 40))
+	if !strings.Contains(got, "feature") || !strings.Contains(got, "#25 merged") {
+		t.Fatalf("cursorHighlight dropped content: %q", got)
+	}
+}
+
+func TestCursorHighlightUnknownOrNarrowWidthKeepsContent(t *testing.T) {
+	for _, width := range []int{0, 2} {
+		got := stripANSI(cursorHighlight("content", width))
+		if !strings.Contains(got, "content") {
+			t.Fatalf("cursorHighlight(_, %d) dropped content: %q", width, got)
+		}
+	}
+}
+
+func TestRenderRow_CursorSpansUsableWidth(t *testing.T) {
+	row := WorktreeRow{
+		Worktree:  git.Worktree{Path: "/repo--feat", Branch: "feat"},
+		State:     StateMerged,
+		PR:        &gh.PR{Number: 25, State: "MERGED"},
+		Cleanable: true,
+	}
+	const width = 80
+	cursorRow := RenderRow(row, true, 10, 12, width)
+	if got := lipgloss.Width(cursorRow); got != width {
+		t.Fatalf("cursor row width = %d, want %d", got, width)
+	}
+	plainRow := RenderRow(row, false, 10, 12, width)
+	if got := lipgloss.Width(plainRow); got == width {
+		t.Fatalf("non-cursor row should not be full-width padded (got %d)", got)
 	}
 }
 
@@ -341,7 +395,7 @@ func TestRenderRow_SelectedCleanable(t *testing.T) {
 		Cleanable: true,
 		Selected:  true,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if !strings.Contains(out, "[x]") {
 		t.Errorf("expected '[x]' for selected cleanable row, got %q", out)
 	}
@@ -355,7 +409,7 @@ func TestRenderRow_UnselectedCleanable(t *testing.T) {
 		Cleanable: true,
 		Selected:  false,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if !strings.Contains(out, "[ ]") {
 		t.Errorf("expected '[ ]' for unselected cleanable row, got %q", out)
 	}
@@ -367,7 +421,7 @@ func TestRenderRow_NonCleanable(t *testing.T) {
 		State:     StateMain,
 		Cleanable: false,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if strings.Contains(out, "[x]") || strings.Contains(out, "[ ]") {
 		t.Errorf("expected no checkbox for non-cleanable row, got %q", out)
 	}
@@ -378,7 +432,7 @@ func TestRenderRow_DetachedHEAD(t *testing.T) {
 		Worktree: git.Worktree{Path: "/repo--detach", Branch: ""},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if !strings.Contains(out, "(detached)") {
 		t.Errorf("expected '(detached)' for empty branch, got %q", out)
 	}
@@ -389,7 +443,7 @@ func TestRenderRow_BranchNameAppears(t *testing.T) {
 		Worktree: git.Worktree{Path: "/repo--my-feature", Branch: "my-feature"},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, false, 20, 10)
+	out := RenderRow(row, false, 20, 10, 80)
 	if !strings.Contains(out, "my-feature") {
 		t.Errorf("expected branch name 'my-feature' in output, got %q", out)
 	}
@@ -400,7 +454,7 @@ func TestRenderRow_OrgWideBranchLabelAppears(t *testing.T) {
 		Worktree: git.Worktree{Path: "/tmp/api--feat", RepoName: "api", Branch: "feat"},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if !strings.Contains(out, "api:feat") {
 		t.Errorf("expected org-wide branch label 'api:feat' in output, got %q", out)
 	}
@@ -411,7 +465,7 @@ func TestRenderRow_PathAppears(t *testing.T) {
 		Worktree: git.Worktree{Path: "/tmp/repo--feat", Branch: "feat"},
 		State:    StateNoPR,
 	}
-	out := RenderRow(row, false, 10, 10)
+	out := RenderRow(row, false, 10, 10, 80)
 	if !strings.Contains(out, "/tmp/repo--feat") {
 		t.Errorf("expected path '/tmp/repo--feat' in output, got %q", out)
 	}

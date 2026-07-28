@@ -98,8 +98,9 @@ func CompressPath(p string) string {
 	return p
 }
 
-// RenderRow renders a single worktree row for the list view.
-func RenderRow(row WorktreeRow, isCursor bool, maxBranch, maxStatus int) string {
+// RenderRow renders a single worktree row for the list view. rowWidth is the
+// usable terminal width after the list's leading indent.
+func RenderRow(row WorktreeRow, isCursor bool, maxBranch, maxStatus, rowWidth int) string {
 	// Cursor indicator
 	cursor := "  "
 	if isCursor {
@@ -132,7 +133,43 @@ func RenderRow(row WorktreeRow, isCursor bool, maxBranch, maxStatus int) string 
 	pathCol := pathStyle.Render(CompressPath(row.Worktree.Path))
 
 	sep := dimStyle.Render(" │ ")
-	return cursor + checkbox + branchCol + sep + statusCol + sep + pathCol
+	rendered := cursor + checkbox + branchCol + sep + statusCol + sep + pathCol
+	if isCursor {
+		rendered = cursorHighlight(rendered, rowWidth)
+	}
+	return rendered
+}
+
+// rowIndentWidth is the leading indent added by viewList before each row.
+const rowIndentWidth = 2
+
+// cursorHighlight applies the cursor-row background across the full usable
+// width while preserving foreground colors inside the already-styled row.
+// Lipgloss resets styles between cells, so reopen the background after each
+// reset before padding and adding a final reset to prevent ANSI bleed.
+func cursorHighlight(row string, width int) string {
+	const reset = "\x1b[0m"
+	open := cursorBGOpen()
+	body := row
+	if open != "" {
+		body = strings.ReplaceAll(row, reset, reset+open)
+	}
+	if width > 0 {
+		if visible := lipgloss.Width(row); visible < width {
+			body += strings.Repeat(" ", width-visible)
+		}
+	}
+	return open + body + reset
+}
+
+// cursorBGOpen returns the background-opening ANSI sequence for the active
+// color profile. It is empty when output colors are disabled.
+func cursorBGOpen() string {
+	probe := highlightStyle.Render("\x00")
+	if i := strings.IndexByte(probe, 0); i >= 0 {
+		return probe[:i]
+	}
+	return ""
 }
 
 func renderStatus(row WorktreeRow) string {

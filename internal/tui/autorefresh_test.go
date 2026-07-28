@@ -66,7 +66,7 @@ func TestAutoRefreshTickMsg_InListPhase(t *testing.T) {
 }
 
 func TestAutoRefreshTickMsg_InOtherPhase(t *testing.T) {
-	for _, ph := range []phase{phaseLoad, phaseConfirm, phaseCleanup, phaseDone, phaseHelp} {
+	for _, ph := range []phase{phaseLoad, phaseConfirm, phaseConfirmOpenPR, phaseCleanup, phaseDone, phaseHelp} {
 		m := testModel()
 		m.phase = ph
 

@@ -57,7 +57,7 @@ func defaultKeyMap() keyMap {
 		),
 		ToggleAll: key.NewBinding(
 			key.WithKeys("ctrl+a"),
-			key.WithHelp("ctrl+a", "toggle all"),
+			key.WithHelp("ctrl+a", "merged/closed"),
 		),
 		All: key.NewBinding(
 			key.WithKeys("a"),

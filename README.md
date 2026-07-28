@@ -94,7 +94,7 @@ discovery, since they are already associated with their owning repository by
 | Key | Action |
 |-----|--------|
 | `space` | Toggle selection (cleanable rows only) |
-| `ctrl+a` | Select all visible cleanable worktrees; press again to clear the visible selection |
+| `ctrl+a` | Toggle all visible merged/closed worktrees; other selections are preserved |
 | `a` | Select all cleanable worktrees |
 | `n` | Deselect all |
 
@@ -112,6 +112,13 @@ discovery, since they are already associated with their owning repository by
 | `backspace` | Go back |
 | `?` | Show help |
 | `q` / `ctrl+c` | Quit |
+
+The cursor row uses a full-width horizontal highlight while preserving each
+column's status color.
+
+Every cleanup has the normal review confirmation. If the selected set contains
+a worktree whose current PR is open (including a draft), gwtui shows a second,
+explicit open-PR warning and requires Enter again before removal.
 
 ### Filtering
 
@@ -144,7 +151,7 @@ left/right, home/end, insertion at the cursor, backspace, and delete.
 | `draft` | Gray | No | PR is draft — protected |
 | `merged` | Green | Yes | PR merged — safe to clean |
 | `closed` | Red | Yes | PR closed — safe to clean |
-| `no PR` | Yellow | Yes | No associated PR — review before cleaning |
+| `no PR` | Yellow | No | No associated PR — protected, clean manually |
 | `main` | Blue (bold) | No | Main worktree — always protected |
 
 ## License
