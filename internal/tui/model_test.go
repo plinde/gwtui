@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -495,6 +496,51 @@ func TestList_SelectAll(t *testing.T) {
 	}
 }
 
+func TestList_CtrlATogglesVisibleCleanableRows(t *testing.T) {
+	m := newTestModel()
+	m.rows = []WorktreeRow{
+		{Worktree: git.Worktree{Path: "/repo--a"}, Cleanable: true},
+		{Worktree: git.Worktree{Path: "/repo--b"}, Cleanable: true, Selected: true},
+		{Worktree: git.Worktree{Path: "/repo--protected"}, Cleanable: false},
+	}
+
+	updated, _ := m.Update(specialKey(tea.KeyCtrlA))
+	got := updated.(model)
+	if !got.rows[0].Selected || !got.rows[1].Selected {
+		t.Fatal("ctrl+a should select every visible cleanable row when any is unselected")
+	}
+	if got.rows[2].Selected {
+		t.Fatal("ctrl+a selected a protected row")
+	}
+
+	updated, _ = got.Update(specialKey(tea.KeyCtrlA))
+	got = updated.(model)
+	if got.rows[0].Selected || got.rows[1].Selected {
+		t.Fatal("second ctrl+a should clear every visible cleanable row")
+	}
+}
+
+func TestList_CtrlANoCleanableRowsIsNoOp(t *testing.T) {
+	tests := []struct {
+		name string
+		rows []WorktreeRow
+	}{
+		{name: "empty"},
+		{name: "protected", rows: []WorktreeRow{{Cleanable: false}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestModel()
+			m.rows = tt.rows
+			updated, _ := m.Update(specialKey(tea.KeyCtrlA))
+			got := updated.(model)
+			if got.selectedCount() != 0 {
+				t.Fatalf("ctrl+a selected %d rows", got.selectedCount())
+			}
+		})
+	}
+}
+
 func TestList_DeselectAll(t *testing.T) {
 	m := newTestModel()
 	m.rows[1].Selected = true
@@ -825,6 +871,9 @@ func TestView_List(t *testing.T) {
 	if v == "" {
 		t.Error("viewList() returned empty string")
 	}
+	if !strings.Contains(v, "[ctrl+a] all") {
+		t.Error("list footer does not document ctrl+a")
+	}
 }
 
 func TestView_Confirm(t *testing.T) {
@@ -882,6 +931,9 @@ func TestView_Help(t *testing.T) {
 	v := m.View()
 	if v == "" {
 		t.Error("viewHelp() returned empty string")
+	}
+	if !strings.Contains(v, "ctrl+a") {
+		t.Error("help does not document ctrl+a")
 	}
 }
 

@@ -462,6 +462,37 @@ func TestFilter_SelectionsPreservedOnFilteredOutRows(t *testing.T) {
 	}
 }
 
+func TestFilter_CtrlATogglesVisibleRowsAndPreservesHiddenSelection(t *testing.T) {
+	m := newFilterableModel()
+	m.allRows[1].State = StateMerged
+	m.allRows[1].Cleanable = true
+	m.allRows[1].Selected = true
+	m.allRows[2].Selected = true
+	m.rows = m.allRows
+	m.filterText = "alpha"
+	m.filterLocked = true
+	m = m.applyFilter()
+
+	updated, _ := m.Update(specialKey(tea.KeyCtrlA))
+	m = updated.(model)
+	if m.rows[0].Selected {
+		t.Fatal("ctrl+a should clear the selected visible cleanable row")
+	}
+
+	updated, _ = m.Update(specialKey(tea.KeyEscape))
+	got := updated.(model)
+	selected := make(map[string]bool)
+	for _, row := range got.rows {
+		selected[row.Worktree.Branch] = row.Selected
+	}
+	if selected["alpha"] {
+		t.Fatal("visible alpha selection was not cleared")
+	}
+	if !selected["bravo"] {
+		t.Fatal("hidden bravo selection was not preserved")
+	}
+}
+
 func TestFilter_SelectionsPreservedOnTabLock(t *testing.T) {
 	m := newFilterableModel()
 

@@ -300,6 +300,8 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.rows) && m.rows[m.cursor].Cleanable {
 				m.rows[m.cursor].Selected = !m.rows[m.cursor].Selected
 			}
+		case key.Matches(msg, m.keys.ToggleAll):
+			m = m.toggleAllVisible()
 		case key.Matches(msg, m.keys.All):
 			for i := range m.rows {
 				if m.rows[i].Cleanable {
@@ -586,7 +588,7 @@ func (m model) viewList() string {
 		b.WriteString("  " + filterActiveStyle.Render(fmt.Sprintf("filter: %s", m.filterText)) +
 			"  " + helpStyle.Render("[/] edit  [esc] clear") + "\n")
 	} else {
-		b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [/] filter  [?] help  [q]uit") + "\n")
+		b.WriteString("  " + helpStyle.Render("[enter] jump  [space] toggle  [ctrl+a] all  [a]ll  [n]one  [tab] cleanup  [r]efresh  [</>] sort  [s] asc/desc  [/] filter  [?] help  [q]uit") + "\n")
 	}
 
 	return b.String()
@@ -706,6 +708,7 @@ func (m model) viewHelp() string {
 
 	b.WriteString("  " + helpSectionStyle.Render("Selection") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("space") + "       " + helpDescStyle.Render("Toggle selection (cleanable rows only)") + "\n")
+	b.WriteString("  " + helpKeyStyle.Render("ctrl+a") + "      " + helpDescStyle.Render("Select all visible cleanable rows / clear selection") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("a") + "           " + helpDescStyle.Render("Select all cleanable worktrees") + "\n")
 	b.WriteString("  " + helpKeyStyle.Render("n") + "           " + helpDescStyle.Render("Deselect all") + "\n")
 	b.WriteString("\n")
@@ -846,6 +849,31 @@ func (m model) selectedCount() int {
 		}
 	}
 	return n
+}
+
+// toggleAllVisible selects every visible cleanable row unless they are all
+// already selected, in which case it clears the visible cleanable selection.
+func (m model) toggleAllVisible() model {
+	cleanable := 0
+	allSelected := true
+	for _, row := range m.rows {
+		if !row.Cleanable {
+			continue
+		}
+		cleanable++
+		if !row.Selected {
+			allSelected = false
+		}
+	}
+	if cleanable == 0 {
+		return m
+	}
+	for i := range m.rows {
+		if m.rows[i].Cleanable {
+			m.rows[i].Selected = !allSelected
+		}
+	}
+	return m
 }
 
 func (m model) cleanableCount() int {
