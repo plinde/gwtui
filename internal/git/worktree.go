@@ -13,6 +13,8 @@ type Worktree struct {
 	CommitSHA string // Short SHA
 	IsMain    bool   // True if this is the main checkout (not a linked worktree)
 	IsBare    bool   // True if bare repo entry
+	RepoPath  string // Owning repository checkout path
+	RepoName  string // Owning repository name, populated for org-wide views
 }
 
 // List returns all worktrees for the repo at repoPath.

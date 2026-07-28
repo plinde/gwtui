@@ -220,6 +220,30 @@ func TestColumnWidths_DetachedBranch(t *testing.T) {
 	}
 }
 
+func TestBranchLabel_WithRepositoryName(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{RepoName: "infrastructure", Branch: "feat/cleanup"},
+	}
+
+	got := BranchLabel(row)
+	want := "infrastructure:feat/cleanup"
+	if got != want {
+		t.Errorf("BranchLabel() = %q, want %q", got, want)
+	}
+}
+
+func TestBranchLabel_WithRepositoryNameAndDetachedBranch(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{RepoName: "api", Branch: ""},
+	}
+
+	got := BranchLabel(row)
+	want := "api:(detached)"
+	if got != want {
+		t.Errorf("BranchLabel() = %q, want %q", got, want)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CompressPath tests
 // ---------------------------------------------------------------------------
@@ -371,6 +395,17 @@ func TestRenderRow_BranchNameAppears(t *testing.T) {
 	}
 }
 
+func TestRenderRow_OrgWideBranchLabelAppears(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{Path: "/tmp/api--feat", RepoName: "api", Branch: "feat"},
+		State:    StateNoPR,
+	}
+	out := RenderRow(row, false, 10, 10)
+	if !strings.Contains(out, "api:feat") {
+		t.Errorf("expected org-wide branch label 'api:feat' in output, got %q", out)
+	}
+}
+
 func TestRenderRow_PathAppears(t *testing.T) {
 	row := WorktreeRow{
 		Worktree: git.Worktree{Path: "/tmp/repo--feat", Branch: "feat"},
@@ -453,5 +488,17 @@ func TestColumnWidths_VeryLongBranchName(t *testing.T) {
 	maxBranch, _ := ColumnWidths(rows)
 	if maxBranch != len(longBranch) {
 		t.Errorf("expected maxBranch=%d, got %d", len(longBranch), maxBranch)
+	}
+}
+
+func TestColumnWidths_UsesOrgWideBranchLabel(t *testing.T) {
+	row := WorktreeRow{
+		Worktree: git.Worktree{RepoName: "infrastructure", Branch: "main"},
+		State:    StateMain,
+	}
+	maxBranch, _ := ColumnWidths([]WorktreeRow{row})
+	want := len("infrastructure:main")
+	if maxBranch != want {
+		t.Errorf("expected maxBranch=%d, got %d", want, maxBranch)
 	}
 }

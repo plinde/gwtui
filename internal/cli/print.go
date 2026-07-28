@@ -5,61 +5,27 @@ import (
 	"os"
 	"strings"
 
-	"github.com/plinde/gwtui/internal/git"
-	gh "github.com/plinde/gwtui/internal/github"
 	"github.com/plinde/gwtui/internal/tui"
 )
 
 // Print loads worktree and PR data, then writes a plain-text table to stdout.
 // Errors are printed to stderr.
-func Print(repoPath string) error {
-	type wtResult struct {
-		wts []git.Worktree
-		err error
+func Print(repoPath, filter string) error {
+	rows, warnings, err := tui.LoadRows(repoPath)
+	if err != nil {
+		return err
 	}
-	type prResult struct {
-		prs map[string]*gh.PR
-		err error
+	for _, warning := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s: could not fetch PR data: %v\n", warning.Repo.Name, warning.Err)
 	}
-
-	wtCh := make(chan wtResult, 1)
-	prCh := make(chan prResult, 1)
-
-	go func() {
-		wts, err := git.List(repoPath)
-		wtCh <- wtResult{wts, err}
-	}()
-	go func() {
-		prs, err := gh.PRsByBranch(repoPath)
-		prCh <- prResult{prs, err}
-	}()
-
-	wt := <-wtCh
-	pr := <-prCh
-
-	if wt.err != nil {
-		return fmt.Errorf("failed to list worktrees: %w", wt.err)
-	}
-	if pr.err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not fetch PR data: %v\n", pr.err)
-	}
-
-	prs := pr.prs
-	if prs == nil {
-		prs = make(map[string]*gh.PR)
-	}
-
-	rows := tui.EnrichWorktrees(wt.wts, prs)
+	rows = tui.FilterRows(rows, filter)
 	maxBranch, maxStatus := tui.ColumnWidths(rows)
 
 	header := fmt.Sprintf("%-*s  %-*s  %s", maxBranch, "BRANCH", maxStatus, "STATUS", "PATH")
 	fmt.Println(header)
 
 	for _, row := range rows {
-		branch := row.Worktree.Branch
-		if branch == "" {
-			branch = "(detached)"
-		}
+		branch := tui.BranchLabel(row)
 		status := plainStatus(row)
 		path := tui.CompressPath(row.Worktree.Path)
 

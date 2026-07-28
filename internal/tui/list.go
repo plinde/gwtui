@@ -69,6 +69,18 @@ func EnrichWorktrees(worktrees []git.Worktree, prs map[string]*gh.PR) []Worktree
 	return rows
 }
 
+// BranchLabel returns the branch text used for display.
+func BranchLabel(row WorktreeRow) string {
+	branch := row.Worktree.Branch
+	if branch == "" {
+		branch = "(detached)"
+	}
+	if row.Worktree.RepoName != "" {
+		return row.Worktree.RepoName + ":" + branch
+	}
+	return branch
+}
+
 // CompressPath abbreviates a filesystem path for display.
 func CompressPath(p string) string {
 	home, err := os.UserHomeDir()
@@ -106,10 +118,7 @@ func RenderRow(row WorktreeRow, isCursor bool, maxBranch, maxStatus int) string 
 	}
 
 	// Branch name
-	branch := row.Worktree.Branch
-	if branch == "" {
-		branch = "(detached)"
-	}
+	branch := BranchLabel(row)
 	branchCol := branchStyle.Render(padRight(branch, maxBranch))
 	if row.State == StateMain {
 		branchCol = stateMainStyle.Render(padRight(branch, maxBranch))
@@ -169,10 +178,7 @@ func padRightVisible(s string, width int) string {
 // ColumnWidths calculates maximum branch and status widths for alignment.
 func ColumnWidths(rows []WorktreeRow) (maxBranch, maxStatus int) {
 	for _, r := range rows {
-		b := len(r.Worktree.Branch)
-		if b == 0 {
-			b = len("(detached)")
-		}
+		b := len(BranchLabel(r))
 		if b > maxBranch {
 			maxBranch = b
 		}

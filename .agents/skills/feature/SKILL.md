@@ -95,6 +95,13 @@ Fix any failures before proceeding. Do not skip this step.
 checkmake Makefile
 ```
 
+### Manual testing handoff
+
+Before asking the user to manually test the change, run `make install` from the
+feature worktree after automated validation passes. Verify
+`~/.local/bin/gwtui --help`, and state which feature branch or commit is
+installed. Do not ask the user to perform the install.
+
 ### Phase 4: PR
 
 8. Stage only the relevant files (no `git add .`):

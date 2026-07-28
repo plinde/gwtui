@@ -20,7 +20,7 @@ const (
 type SortDirection int
 
 const (
-	SortAsc  SortDirection = iota
+	SortAsc SortDirection = iota
 	SortDesc
 )
 
@@ -95,7 +95,7 @@ func comparator(col SortColumn) func(a, b WorktreeRow) int {
 }
 
 func cmpBranch(a, b WorktreeRow) int {
-	return cmp.Compare(strings.ToLower(a.Worktree.Branch), strings.ToLower(b.Worktree.Branch))
+	return cmp.Compare(strings.ToLower(BranchLabel(a)), strings.ToLower(BranchLabel(b)))
 }
 
 // cmpPRNum compares by PR number. Callers must handle nil-PR cases before calling.
