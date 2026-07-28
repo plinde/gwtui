@@ -93,6 +93,7 @@ discovery, since they are already associated with their owning repository by
 | Key | Action |
 |-----|--------|
 | `space` | Toggle selection (cleanable rows only) |
+| `ctrl+a` | Select all visible cleanable worktrees; press again to clear the visible selection |
 | `a` | Select all cleanable worktrees |
 | `n` | Deselect all |
 

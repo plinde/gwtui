@@ -10,6 +10,7 @@ type keyMap struct {
 	PageUp     key.Binding
 	PageDown   key.Binding
 	Toggle     key.Binding
+	ToggleAll  key.Binding
 	All        key.Binding
 	None       key.Binding
 	Confirm    key.Binding
@@ -53,6 +54,10 @@ func defaultKeyMap() keyMap {
 		Toggle: key.NewBinding(
 			key.WithKeys(" "),
 			key.WithHelp("space", "toggle"),
+		),
+		ToggleAll: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+			key.WithHelp("ctrl+a", "toggle all"),
 		),
 		All: key.NewBinding(
 			key.WithKeys("a"),

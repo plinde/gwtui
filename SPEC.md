@@ -61,6 +61,7 @@ Worktree list (`git`) and PR data (`gh`) are fetched in parallel via goroutines.
 | Key | Action |
 |-----|--------|
 | `space` | Toggle selection (cleanable rows only) |
+| `ctrl+a` | Select all visible cleanable worktrees; press again to clear the visible selection |
 | `a` | Select all cleanable worktrees |
 | `n` | Deselect all |
 

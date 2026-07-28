@@ -11,10 +11,12 @@ triggers:
 
 Builds the gwtui binary from source and installs it.
 
-When installation is part of a manual feature-testing handoff, run these steps
-from the feature worktree containing the exact change to test. In that case,
-being off `main` is expected; identify the installed branch or commit in the
-handoff.
+For a feature that affects the built binary, installation is a required local
+validation step before PR/release delivery, not only when manual testing has
+already been requested. Run these steps from the feature worktree containing
+the exact change to test. In that case, being off `main` is expected; identify
+the installed branch or commit in the handoff. Documentation-only changes that
+cannot affect the binary are exempt.
 
 ## Steps
 

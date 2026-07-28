@@ -95,12 +95,15 @@ Fix any failures before proceeding. Do not skip this step.
 checkmake Makefile
 ```
 
-### Manual testing handoff
+### Installed-binary validation
 
-Before asking the user to manually test the change, run `make install` from the
-feature worktree after automated validation passes. Verify
+After automated validation passes and before Phase 4/PR, run `make install` from
+the feature worktree for every change that affects the built binary. Verify
 `~/.local/bin/gwtui --help`, and state which feature branch or commit is
-installed. Do not ask the user to perform the install.
+installed. A code feature is not locally validated or ready for delivery until
+this installed-binary check passes, even when the user has not yet been asked to
+manually test it. Do not ask the user to perform the install. Documentation-only
+changes that cannot affect the binary are exempt.
 
 ### Phase 4: PR
 

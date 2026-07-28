@@ -10,17 +10,18 @@ func TestDefaultKeyMap_AllBindingsPresent(t *testing.T) {
 	km := defaultKeyMap()
 
 	bindings := map[string]key.Binding{
-		"Up":      km.Up,
-		"Down":    km.Down,
-		"Toggle":  km.Toggle,
-		"All":     km.All,
-		"None":    km.None,
-		"Confirm": km.Confirm,
-		"Enter":   km.Enter,
-		"Help":    km.Help,
-		"Back":    km.Back,
-		"Refresh": km.Refresh,
-		"Quit":    km.Quit,
+		"Up":        km.Up,
+		"Down":      km.Down,
+		"Toggle":    km.Toggle,
+		"ToggleAll": km.ToggleAll,
+		"All":       km.All,
+		"None":      km.None,
+		"Confirm":   km.Confirm,
+		"Enter":     km.Enter,
+		"Help":      km.Help,
+		"Back":      km.Back,
+		"Refresh":   km.Refresh,
+		"Quit":      km.Quit,
 	}
 
 	for name, b := range bindings {
@@ -48,6 +49,7 @@ func TestDefaultKeyMap_ExpectedKeys(t *testing.T) {
 		{"Up", km.Up, []string{"up", "k"}},
 		{"Down", km.Down, []string{"down", "j"}},
 		{"Toggle", km.Toggle, []string{" "}},
+		{"ToggleAll", km.ToggleAll, []string{"ctrl+a"}},
 		{"All", km.All, []string{"a"}},
 		{"None", km.None, []string{"n"}},
 		{"Confirm", km.Confirm, []string{"tab"}},
