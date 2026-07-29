@@ -17,10 +17,11 @@ type LoadWarning struct {
 
 // LoadRows loads worktree and PR data for either a single repo or an org root.
 // When scopeRepo is set, sibling repositories are pruned before GitHub loading.
-func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, error) {
+// Returns isOrgRoot indicating whether the target is an org root.
+func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, bool, error) {
 	target, err := git.ResolveTarget(targetPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
 	repositories := target.Repositories
@@ -33,7 +34,7 @@ func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, error
 			}
 		}
 		if len(repositories) == 0 {
-			return nil, nil, fmt.Errorf("repository %q is not a direct checkout under %s", scopeRepo, target.Root)
+			return nil, nil, false, fmt.Errorf("repository %q is not a direct checkout under %s", scopeRepo, target.Root)
 		}
 	}
 
@@ -75,7 +76,7 @@ func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, error
 	results := make([]result, len(repositories))
 	for r := range resultCh {
 		if r.err != nil {
-			return nil, nil, fmt.Errorf("%s: failed to list worktrees: %w", r.repo.Name, r.err)
+			return nil, nil, false, fmt.Errorf("%s: failed to list worktrees: %w", r.repo.Name, r.err)
 		}
 		results[r.index] = r
 	}
@@ -108,5 +109,5 @@ func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, error
 		}
 		rows = append(rows, EnrichWorktrees(result.wts, prs)...)
 	}
-	return rows, warnings, nil
+	return rows, warnings, target.IsOrg, nil
 }

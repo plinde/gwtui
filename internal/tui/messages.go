@@ -17,6 +17,7 @@ type loadDoneMsg struct {
 	prs       map[string]*gh.PR
 	rows      []WorktreeRow
 	err       error
+	isOrgRoot bool
 }
 
 // cleanupDoneMsg is sent when all cleanup operations complete.
@@ -27,8 +28,8 @@ type cleanupDoneMsg struct {
 // doLoad fetches worktrees and PR data concurrently.
 func doLoad(repoPath, scopeRepo string) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath, scopeRepo)
-		return loadDoneMsg{rows: rows, err: err}
+		rows, _, isOrgRoot, err := LoadRows(repoPath, scopeRepo)
+		return loadDoneMsg{rows: rows, err: err, isOrgRoot: isOrgRoot}
 	}
 }
 
@@ -44,6 +45,7 @@ type autoRefreshDoneMsg struct {
 	rows       []WorktreeRow
 	err        error
 	generation uint64
+	isOrgRoot  bool
 }
 
 // scheduleAutoRefresh returns a command that fires autoRefreshTickMsg after the interval.
@@ -56,8 +58,8 @@ func scheduleAutoRefresh(generation uint64) tea.Cmd {
 // doAutoRefresh performs the same loading as doLoad but returns autoRefreshDoneMsg.
 func doAutoRefresh(repoPath, scopeRepo string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath, scopeRepo)
-		return autoRefreshDoneMsg{rows: rows, err: err, generation: generation}
+		rows, _, isOrgRoot, err := LoadRows(repoPath, scopeRepo)
+		return autoRefreshDoneMsg{rows: rows, err: err, generation: generation, isOrgRoot: isOrgRoot}
 	}
 }
 

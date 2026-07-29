@@ -32,6 +32,8 @@ type model struct {
 	repoPath    string
 	displayPath string
 	scopeRepo   string
+	isOrgRoot   bool // true when launched from an org root
+	showRepos   bool // true when main checkouts should be visible in orgroot mode
 	keys        keyMap
 	spinner     spinner.Model
 
@@ -65,7 +67,7 @@ type model struct {
 
 // Run launches the TUI. Returns the selected worktree path if the user
 // pressed enter to jump, or empty string on normal quit.
-func Run(repoPath, scopePath, scopeRepo string) (string, error) {
+func Run(repoPath, scopePath, scopeRepo string, showRepos bool) (string, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
@@ -75,6 +77,7 @@ func Run(repoPath, scopePath, scopeRepo string) (string, error) {
 		repoPath:    repoPath,
 		displayPath: scopePath,
 		scopeRepo:   strings.TrimSpace(scopeRepo),
+		showRepos:   showRepos,
 		keys:        defaultKeyMap(),
 		spinner:     s,
 		sortCol:     SortState,
@@ -172,6 +175,7 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 		m.phase = phaseDone
 		return m.scheduleNextAutoRefresh()
 	}
+	m.isOrgRoot = msg.isOrgRoot
 	m.unsortedRows = msg.rows
 	if m.unsortedRows == nil {
 		m.unsortedRows = EnrichWorktrees(msg.worktrees, msg.prs)
@@ -225,6 +229,8 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 	if msg.err != nil {
 		return m.scheduleNextAutoRefresh()
 	}
+
+	m.isOrgRoot = msg.isOrgRoot
 
 	// Preserve selected state by worktree path from both visible and hidden rows.
 	// Branch names collide across repositories in org-wide mode.
@@ -443,7 +449,20 @@ func (m model) scopedRows() []WorktreeRow {
 func (m model) visibleRows() []WorktreeRow {
 	rows := m.scopedRows()
 	if m.filterLocked && m.filterText != "" {
-		return filterRows(rows, m.filterText)
+		rows = filterRows(rows, m.filterText)
+	}
+	// In orgroot mode, suppress main repo checkouts by default in the
+	// org-wide view. When scoped to a single repo (scopeRepo != "") the
+	// main checkout remains visible.
+	// Set show_repos = true in config.toml or pass --show-repos to reveal them.
+	if m.isOrgRoot && !m.showRepos && m.scopeRepo == "" {
+		filtered := make([]WorktreeRow, 0, len(rows))
+		for _, r := range rows {
+			if r.State != StateMain {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
 	}
 	return rows
 }

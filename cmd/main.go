@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plinde/gwtui/internal/cli"
+	"github.com/plinde/gwtui/internal/config"
 	"github.com/plinde/gwtui/internal/tui"
 )
 
@@ -17,6 +18,7 @@ func main() {
 	var orgArg string
 	var repoArg string
 	var noTUI bool
+	var showRepos bool
 
 	rootCmd := &cobra.Command{
 		Use:          "gwtui [path]",
@@ -38,10 +40,25 @@ func main() {
 			if err != nil {
 				return err
 			}
-			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
-				return cli.Print(scope.targetPath, scope.repository)
+
+			// Load XDG config; missing/malformed is non-fatal.
+			cfg, cfgErr := config.Load()
+			if cfgErr != nil {
+				fmt.Fprintf(os.Stderr, "gwtui: warning: %v; using defaults\n", cfgErr)
 			}
-			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository)
+
+			// Resolve showRepos: CLI flag > config key > default false.
+			resolvedShowRepos := false
+			if cmd.Flags().Changed("show-repos") {
+				resolvedShowRepos = showRepos
+			} else if cfg.ShowReposSet {
+				resolvedShowRepos = cfg.ShowRepos
+			}
+
+			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
+				return cli.Print(scope.targetPath, scope.repository, resolvedShowRepos)
+			}
+			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository, resolvedShowRepos)
 			if err != nil {
 				return err
 			}
@@ -55,6 +72,7 @@ func main() {
 	rootCmd.Flags().StringVar(&orgArg, "org", "", "GitHub org name or path to an org root")
 	rootCmd.Flags().StringVar(&repoArg, "repo", "", "repository scope with --org; otherwise repository/org-root path (legacy)")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
+	rootCmd.Flags().BoolVar(&showRepos, "show-repos", false, "show main repo checkouts in orgroot mode (default: hidden; overrides show_repos in config.toml)")
 
 	initCmd := &cobra.Command{
 		Use:       "init [shell]",

@@ -10,9 +10,11 @@ import (
 
 // Print loads worktree and PR data, scopes it to repository when provided,
 // then writes a plain-text table to stdout.
+// When isOrgRoot is true and showRepos is false, main repo checkout rows are
+// suppressed to match the TUI default.
 // Errors are printed to stderr.
-func Print(repoPath, repository string) error {
-	rows, warnings, err := tui.LoadRows(repoPath, repository)
+func Print(repoPath, repository string, showRepos bool) error {
+	rows, warnings, isOrgRoot, err := tui.LoadRows(repoPath, repository)
 	if err != nil {
 		return err
 	}
@@ -27,6 +29,16 @@ func Print(repoPath, repository string) error {
 			}
 		}
 		rows = scoped
+	}
+	// Suppress main repo checkouts in org-wide mode by default.
+	if isOrgRoot && !showRepos && repository == "" {
+		var filtered []tui.WorktreeRow
+		for _, row := range rows {
+			if row.State != tui.StateMain {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
 	}
 	maxBranch, maxStatus := tui.ColumnWidths(rows)
 
