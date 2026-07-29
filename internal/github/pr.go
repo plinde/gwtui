@@ -9,15 +9,23 @@ import (
 	"github.com/plinde/gwtui/internal/cache"
 )
 
-// prFetchLimit bounds how many PRs are requested per repository.
+// PRFetchLimit bounds how many PRs are requested per repository.
 //
 // This was 200. GitHub's GraphQL API caps a connection page at 100 nodes, so
 // 200 forced the gh CLI into *two* requests per repository on every refresh —
-// double the rate-limit spend for data that was then mostly discarded, since
-// only PRs whose head branch matches a live worktree are ever displayed. 50
-// covers the in-flight work on any repo this tool is pointed at, in one
-// request.
-const prFetchLimit = 50
+// double the rate-limit spend on every tick.
+//
+// 100 rather than a smaller number on purpose: anything from 1 to 100 costs the
+// same single request, so trimming below 100 buys nothing and only narrows
+// coverage. That matters because this list is matched against live worktree
+// branches, and a long-lived branch on a busy repo (infrastructure has ~141 PRs,
+// some have more) can sit outside the most recent slice. Missing its PR would
+// drop the state badge — including `MERGED`, which is what makes a worktree safe
+// to clean up.
+//
+// Exported so the rate-budget test in package tui can reason about how many
+// GraphQL requests a refresh actually costs.
+const PRFetchLimit = 100
 
 // PR represents a GitHub pull request.
 type PR struct {
@@ -36,7 +44,7 @@ type PR struct {
 func PRsByBranch(repoPath string) (map[string]*PR, error) {
 	cmd := exec.Command("gh", "pr", "list",
 		"--state", "all",
-		"--limit", strconv.Itoa(prFetchLimit),
+		"--limit", strconv.Itoa(PRFetchLimit),
 		"--json", "number,title,state,isDraft,headRefName",
 	)
 	cmd.Dir = repoPath

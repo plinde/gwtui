@@ -174,9 +174,10 @@ Measured on a 17-repo org root:
 
 Two supporting fixes landed with it:
 
-- **`--limit` 200 → 50.** GitHub caps a GraphQL page at 100 nodes, so 200 forced *two* requests
-  per repository on every refresh — double the cost for data that was mostly discarded, since
-  only PRs whose head branch matches a live worktree are displayed.
+- **`--limit` 200 → 100.** GitHub caps a GraphQL page at 100 nodes, so 200 forced *two* requests
+  per repository on every refresh. 100 is the largest value that still costs a single request —
+  trimming lower would narrow PR coverage (and so the `MERGED` badge that makes a worktree safe
+  to clean up) without saving anything.
 - **Bounded fan-out.** Repository loading spawned one goroutine per repo with no limit, firing
   every `gh` call simultaneously. That is how the budget was observed at `5004/5000` — a hard
   cap is only exceeded when requests are already in flight together when it is reached. Now

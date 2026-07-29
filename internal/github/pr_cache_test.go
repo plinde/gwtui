@@ -184,17 +184,19 @@ func TestDisabledCacheAlwaysCallsLive(t *testing.T) {
 	}
 }
 
-// 200 forced two GraphQL pages per repo, since a page caps at 100 nodes.
+// 200 forced two GraphQL pages per repo, since a page caps at 100 nodes. 100 is
+// the largest value that still costs one request, so it is the right choice:
+// trimming lower would narrow PR coverage without saving anything.
 func TestFetchLimitFitsOneGraphQLPage(t *testing.T) {
-	if prFetchLimit > 100 {
-		t.Errorf("prFetchLimit = %d; above 100 the gh CLI paginates and doubles the rate-limit cost", prFetchLimit)
+	if PRFetchLimit > 100 {
+		t.Errorf("PRFetchLimit = %d; above 100 the gh CLI paginates and doubles the rate-limit cost", PRFetchLimit)
 	}
 	log := stubGH(t, onePR)
 	if _, err := PRsByBranch("."); err != nil {
 		t.Fatal(err)
 	}
 	got := lines(t, log)
-	if len(got) != 1 || !strings.Contains(got[0], "--limit 50") {
-		t.Errorf("gh args = %v, want --limit 50", got)
+	if len(got) != 1 || !strings.Contains(got[0], "--limit 100") {
+		t.Errorf("gh args = %v, want --limit 100", got)
 	}
 }
