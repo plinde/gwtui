@@ -137,7 +137,7 @@ func TestDoCleanup_UsesWorktreeRepoPath(t *testing.T) {
 }
 
 func TestDoLoad_ReturnsNonNilCmd(t *testing.T) {
-	cmd := doLoad("/tmp/fakerepo")
+	cmd := doLoad("/tmp/fakerepo", "")
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from doLoad")
 	}
@@ -158,7 +158,7 @@ func TestDoLoad_WithTempGitRepo(t *testing.T) {
 	// Initialize a bare-minimum git repo
 	initGitRepo(t, repoPath)
 
-	cmd := doLoad(repoPath)
+	cmd := doLoad(repoPath, "")
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from doLoad")
 	}

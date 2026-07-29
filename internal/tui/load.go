@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/plinde/gwtui/internal/git"
@@ -15,32 +16,55 @@ type LoadWarning struct {
 }
 
 // LoadRows loads worktree and PR data for either a single repo or an org root.
-func LoadRows(targetPath string) ([]WorktreeRow, []LoadWarning, error) {
+// When scopeRepo is set, sibling repositories are pruned before GitHub loading.
+func LoadRows(targetPath, scopeRepo string) ([]WorktreeRow, []LoadWarning, error) {
 	target, err := git.ResolveTarget(targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	type result struct {
-		index    int
-		rows     []WorktreeRow
-		warnings []LoadWarning
-		err      error
+	repositories := target.Repositories
+	if scopeRepo = strings.TrimSpace(scopeRepo); scopeRepo != "" {
+		repositories = nil
+		for _, repo := range target.Repositories {
+			if strings.EqualFold(repo.Name, scopeRepo) {
+				repositories = append(repositories, repo)
+				break
+			}
+		}
+		if len(repositories) == 0 {
+			return nil, nil, fmt.Errorf("repository %q is not a direct checkout under %s", scopeRepo, target.Root)
+		}
 	}
 
-	resultCh := make(chan result, len(target.Repositories))
+	type result struct {
+		index int
+		repo  git.Repository
+		wts   []git.Worktree
+		err   error
+	}
+
+	resultCh := make(chan result, len(repositories))
 	var wg sync.WaitGroup
 
-	for i, repo := range target.Repositories {
+	for i, repo := range repositories {
 		wg.Add(1)
 		go func(index int, repo git.Repository) {
 			defer wg.Done()
-			rows, warnings, err := loadRepoRows(repo, target.IsOrg)
+			wts, err := git.List(repo.Path)
+			if err == nil {
+				for i := range wts {
+					wts[i].RepoPath = repo.Path
+					if target.IsOrg {
+						wts[i].RepoName = repo.Name
+					}
+				}
+			}
 			resultCh <- result{
-				index:    index,
-				rows:     rows,
-				warnings: warnings,
-				err:      err,
+				index: index,
+				repo:  repo,
+				wts:   wts,
+				err:   err,
 			}
 		}(i, repo)
 	}
@@ -48,45 +72,41 @@ func LoadRows(targetPath string) ([]WorktreeRow, []LoadWarning, error) {
 	wg.Wait()
 	close(resultCh)
 
-	rowsByIndex := make([][]WorktreeRow, len(target.Repositories))
-	var warnings []LoadWarning
+	results := make([]result, len(repositories))
 	for r := range resultCh {
 		if r.err != nil {
-			return nil, warnings, r.err
+			return nil, nil, fmt.Errorf("%s: failed to list worktrees: %w", r.repo.Name, r.err)
 		}
-		rowsByIndex[r.index] = r.rows
-		warnings = append(warnings, r.warnings...)
+		results[r.index] = r
 	}
 
+	queries := make([]gh.RepositoryBranches, 0, len(results))
+	for _, result := range results {
+		branches := make([]string, 0, len(result.wts))
+		for _, wt := range result.wts {
+			if !wt.IsMain && wt.Branch != "" {
+				branches = append(branches, wt.Branch)
+			}
+		}
+		queries = append(queries, gh.RepositoryBranches{
+			Key:      result.repo.Path,
+			Path:     result.repo.Path,
+			Branches: branches,
+		})
+	}
+
+	prsByRepo, queryErrors := gh.PRsByBranches(queries)
+	var warnings []LoadWarning
 	var rows []WorktreeRow
-	for _, repoRows := range rowsByIndex {
-		rows = append(rows, repoRows...)
+	for _, result := range results {
+		if err := queryErrors[result.repo.Path]; err != nil {
+			warnings = append(warnings, LoadWarning{Repo: result.repo, Err: err})
+		}
+		prs := prsByRepo[result.repo.Path]
+		if prs == nil {
+			prs = make(map[string]*gh.PR)
+		}
+		rows = append(rows, EnrichWorktrees(result.wts, prs)...)
 	}
 	return rows, warnings, nil
-}
-
-func loadRepoRows(repo git.Repository, showRepoName bool) ([]WorktreeRow, []LoadWarning, error) {
-	wts, err := git.List(repo.Path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: failed to list worktrees: %w", repo.Name, err)
-	}
-
-	for i := range wts {
-		wts[i].RepoPath = repo.Path
-		if showRepoName {
-			wts[i].RepoName = repo.Name
-		}
-	}
-
-	prs, err := gh.PRsByBranch(repo.Path)
-	var warnings []LoadWarning
-	if err != nil {
-		warnings = append(warnings, LoadWarning{Repo: repo, Err: err})
-		prs = make(map[string]*gh.PR)
-	}
-	if prs == nil {
-		prs = make(map[string]*gh.PR)
-	}
-
-	return EnrichWorktrees(wts, prs), warnings, nil
 }

@@ -61,10 +61,10 @@ checkouts:
 
 Running `gwtui` from that directory shows one combined list of worktrees for the
 direct checkouts under the org root. Running from inside one of its repositories
-loads the org data but keeps the TUI scoped to that repository. The repository
-path and a distinct `scope: repo:<repository>` indicator are shown; clearing a
-user filter never reveals sibling repositories. The org root and repository are
-inferred from the conventional `github.com/<org>/<repo>` path, including linked
+loads only that repository and its linked worktrees. The repository path and a
+distinct `scope: repo:<repository>` indicator are shown; clearing a user filter
+never reveals sibling repositories. The org root and repository are inferred
+from the conventional `github.com/<org>/<repo>` path, including linked
 worktrees. To see the org-wide list, launch from the org root or use `--org`.
 
 gwtui is filesystem-driven: it only knows about repositories that are checked

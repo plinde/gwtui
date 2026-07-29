@@ -9,7 +9,7 @@ import (
 	gh "github.com/plinde/gwtui/internal/github"
 )
 
-const autoRefreshInterval = 15 * time.Second
+const autoRefreshInterval = time.Minute
 
 // loadDoneMsg is sent when worktree + PR data loading completes.
 type loadDoneMsg struct {
@@ -25,36 +25,39 @@ type cleanupDoneMsg struct {
 }
 
 // doLoad fetches worktrees and PR data concurrently.
-func doLoad(repoPath string) tea.Cmd {
+func doLoad(repoPath, scopeRepo string) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath)
+		rows, _, err := LoadRows(repoPath, scopeRepo)
 		return loadDoneMsg{rows: rows, err: err}
 	}
 }
 
 // autoRefreshTickMsg fires when the auto-refresh timer expires.
-type autoRefreshTickMsg struct{}
+type autoRefreshTickMsg struct {
+	generation uint64
+}
 
 // autoRefreshDoneMsg carries background-refresh results without disrupting the UI.
 type autoRefreshDoneMsg struct {
-	worktrees []git.Worktree
-	prs       map[string]*gh.PR
-	rows      []WorktreeRow
-	err       error
+	worktrees  []git.Worktree
+	prs        map[string]*gh.PR
+	rows       []WorktreeRow
+	err        error
+	generation uint64
 }
 
 // scheduleAutoRefresh returns a command that fires autoRefreshTickMsg after the interval.
-func scheduleAutoRefresh() tea.Cmd {
+func scheduleAutoRefresh(generation uint64) tea.Cmd {
 	return tea.Tick(autoRefreshInterval, func(time.Time) tea.Msg {
-		return autoRefreshTickMsg{}
+		return autoRefreshTickMsg{generation: generation}
 	})
 }
 
 // doAutoRefresh performs the same loading as doLoad but returns autoRefreshDoneMsg.
-func doAutoRefresh(repoPath string) tea.Cmd {
+func doAutoRefresh(repoPath, scopeRepo string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath)
-		return autoRefreshDoneMsg{rows: rows, err: err}
+		rows, _, err := LoadRows(repoPath, scopeRepo)
+		return autoRefreshDoneMsg{rows: rows, err: err, generation: generation}
 	}
 }
 

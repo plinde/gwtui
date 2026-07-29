@@ -188,7 +188,7 @@ gwtui/
 | Tool | Usage |
 |------|-------|
 | `git` | `git worktree list --porcelain`, `git worktree remove --force`, `git branch -D`, `git symbolic-ref` |
-| `gh` | `gh pr list --state all --limit 200 --json number,title,state,isDraft,headRefName` |
+| `gh` | `gh api graphql` with one aliased query per GitHub host |
 
 ## Git Operations
 
@@ -222,12 +222,17 @@ Cleanup runs sequentially (not parallel) to avoid git lock contention.
 
 ## GitHub Integration
 
-```
-gh pr list --state all --limit 200 --json number,title,state,isDraft,headRefName
-```
+PR data is fetched after local worktree discovery:
 
-- Returns up to **200** PRs (open + closed + merged)
-- Indexed into `map[string]*PR` keyed by `headRefName` for O(1) branch lookup
+- Main and detached worktrees require no PR lookup.
+- Only branch names belonging to loaded worktrees are requested.
+- Repositories and branches on the same GitHub host are combined into one
+  aliased GraphQL request.
+- Each branch requests only its newest matching PR.
+- Repository-scoped launches prune sibling repositories before querying.
+- Results are indexed into `map[string]*PR` keyed by branch for O(1) lookup.
+- Automatic refresh is single-flight and runs one minute after the preceding
+  refresh completes.
 - PR states from GitHub: `"OPEN"`, `"CLOSED"`, `"MERGED"`
 
 ## UI Features

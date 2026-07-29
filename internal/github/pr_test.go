@@ -2,6 +2,10 @@ package github
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,7 +93,7 @@ func TestPRMapConstruction_HeadRefAsKey(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	// Build the map the same way PRsByBranch does
+	// Build the branch-keyed map used by the TUI enrichment path.
 	result := make(map[string]*PR, len(prs))
 	for i := range prs {
 		result[prs[i].HeadRef] = &prs[i]
@@ -134,5 +138,115 @@ func TestPRMapConstruction_DuplicateBranch_LastWins(t *testing.T) {
 	}
 	if pr.Title != "Second" {
 		t.Errorf("expected title 'Second', got %q", pr.Title)
+	}
+}
+
+func TestParseRemoteURL(t *testing.T) {
+	tests := []struct {
+		remote string
+		host   string
+		owner  string
+		repo   string
+	}{
+		{"git@github.com:plinde/gwtui.git", "github.com", "plinde", "gwtui"},
+		{"https://github.com/Plinde/gwtui", "github.com", "Plinde", "gwtui"},
+		{"ssh://git@git.example.com/Acme/api.git", "git.example.com", "Acme", "api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.remote, func(t *testing.T) {
+			host, owner, repo, err := parseRemoteURL(tt.remote)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if host != tt.host || owner != tt.owner || repo != tt.repo {
+				t.Fatalf("got %s/%s/%s, want %s/%s/%s",
+					host, owner, repo, tt.host, tt.owner, tt.repo)
+			}
+		})
+	}
+}
+
+func TestBuildBatchQuery_TargetsOnlyRequestedBranches(t *testing.T) {
+	request, repos := buildBatchQuery([]remoteRepository{
+		{Key: "web", Owner: "Acme", Name: "web", Branches: []string{"feature/z", "feature/z"}},
+		{Key: "api", Owner: "Acme", Name: "api", Branches: []string{"feature/a"}},
+	})
+
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repository aliases, got %d", len(repos))
+	}
+	if strings.Count(request.Query, "repository(") != 2 {
+		t.Fatalf("expected 2 repository fields: %s", request.Query)
+	}
+	if strings.Count(request.Query, "pullRequests(") != 2 {
+		t.Fatalf("expected one connection per unique branch: %s", request.Query)
+	}
+	if strings.Contains(request.Query, "200") || !strings.Contains(request.Query, "first:1") {
+		t.Fatalf("query should fetch only the newest matching PR: %s", request.Query)
+	}
+	if request.Variables["branch0_0"] != "feature/a" ||
+		request.Variables["branch1_0"] != "feature/z" {
+		t.Fatalf("unexpected branch variables: %#v", request.Variables)
+	}
+}
+
+func TestPRsByBranches_BatchesRepositoriesOnSameHost(t *testing.T) {
+	root := t.TempDir()
+	api := filepath.Join(root, "api")
+	web := filepath.Join(root, "web")
+	initRemoteRepo(t, api, "git@github.com:Acme/api.git")
+	initRemoteRepo(t, web, "https://github.com/Acme/web.git")
+
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(root, "calls.log")
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+printf 'call\n' >> "$GWTUI_GH_CALL_LOG"
+cat >/dev/null
+printf '%s\n' '{"data":{"r0":{"b0":{"nodes":[{"number":1,"title":"API","state":"MERGED","isDraft":false,"headRefName":"feature/api"}]}},"r1":{"b0":{"nodes":[{"number":2,"title":"Web","state":"OPEN","isDraft":false,"headRefName":"feature/web"}]}},"rateLimit":{"cost":1}}}'
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GWTUI_GH_CALL_LOG", logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prs, errs := PRsByBranches([]RepositoryBranches{
+		{Key: api, Path: api, Branches: []string{"feature/api"}},
+		{Key: web, Path: web, Branches: []string{"feature/web"}},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %#v", errs)
+	}
+	calls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(calls), "call\n"); got != 1 {
+		t.Fatalf("expected one GraphQL process for one host, got %d", got)
+	}
+	if prs[api]["feature/api"].State != "MERGED" ||
+		prs[web]["feature/web"].State != "OPEN" {
+		t.Fatalf("unexpected PR results: %#v", prs)
+	}
+}
+
+func initRemoteRepo(t *testing.T, path, remote string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"remote", "add", "origin", remote},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = path
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
 	}
 }

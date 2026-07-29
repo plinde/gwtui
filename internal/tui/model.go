@@ -58,6 +58,9 @@ type model struct {
 
 	width  int
 	height int
+
+	refreshGeneration uint64
+	refreshInFlight   bool
 }
 
 // Run launches the TUI. Returns the selected worktree path if the user
@@ -101,7 +104,7 @@ func newFilterInput(value string) textinput.Model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath), scheduleAutoRefresh())
+	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.scopeRepo))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -129,7 +132,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLoadDone(msg)
 
 	case autoRefreshTickMsg:
-		return m.handleAutoRefreshTick()
+		return m.handleAutoRefreshTick(msg)
 
 	case autoRefreshDoneMsg:
 		return m.handleAutoRefreshDone(msg)
@@ -167,7 +170,7 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.loadErr = msg.err
 		m.phase = phaseDone
-		return m, scheduleAutoRefresh()
+		return m.scheduleNextAutoRefresh()
 	}
 	m.unsortedRows = msg.rows
 	if m.unsortedRows == nil {
@@ -189,26 +192,38 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	return m, scheduleAutoRefresh()
+	return m.scheduleNextAutoRefresh()
 }
 
-func (m model) handleAutoRefreshTick() (tea.Model, tea.Cmd) {
+func (m model) handleAutoRefreshTick(msg autoRefreshTickMsg) (tea.Model, tea.Cmd) {
+	if msg.generation != m.refreshGeneration {
+		return m, nil
+	}
 	if m.phase == phaseList {
-		return m, doAutoRefresh(m.repoPath)
+		if m.refreshInFlight {
+			return m, nil
+		}
+		m.refreshInFlight = true
+		return m, doAutoRefresh(m.repoPath, m.scopeRepo, msg.generation)
 	}
 	// Not in list phase — reschedule without loading
-	return m, scheduleAutoRefresh()
+	return m.scheduleNextAutoRefresh()
 }
 
 func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.generation != m.refreshGeneration {
+		return m, nil
+	}
+	m.refreshInFlight = false
+
 	// If we're no longer in list phase, discard and reschedule
 	if m.phase != phaseList {
-		return m, scheduleAutoRefresh()
+		return m.scheduleNextAutoRefresh()
 	}
 
 	// Silently ignore errors — don't disrupt the UI
 	if msg.err != nil {
-		return m, scheduleAutoRefresh()
+		return m.scheduleNextAutoRefresh()
 	}
 
 	// Preserve selected state by worktree path from both visible and hidden rows.
@@ -262,7 +277,18 @@ func (m model) handleAutoRefreshDone(msg autoRefreshDoneMsg) (tea.Model, tea.Cmd
 		m.cursor = 0
 	}
 
-	return m, scheduleAutoRefresh()
+	return m.scheduleNextAutoRefresh()
+}
+
+func (m model) scheduleNextAutoRefresh() (tea.Model, tea.Cmd) {
+	m.refreshGeneration++
+	return m, scheduleAutoRefresh(m.refreshGeneration)
+}
+
+func (m model) invalidateAutoRefresh() model {
+	m.refreshGeneration++
+	m.refreshInFlight = false
+	return m
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -318,8 +344,9 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		case key.Matches(msg, m.keys.Refresh):
+			m = m.invalidateAutoRefresh()
 			m.phase = phaseLoad
-			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.scopeRepo))
 		case key.Matches(msg, m.keys.SortNext):
 			m = m.advanceSort(nextSortColumn)
 		case key.Matches(msg, m.keys.SortPrev):
@@ -546,8 +573,9 @@ func (m model) returnToList() (tea.Model, tea.Cmd) {
 	m.results = nil
 	m.loadErr = nil
 	m.doneCountdown = 0
+	m = m.invalidateAutoRefresh()
 	m.phase = phaseLoad
-	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.scopeRepo))
 }
 
 func (m model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
