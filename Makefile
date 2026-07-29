@@ -2,12 +2,16 @@ BINARY := gwtui
 BUILD_DIR := bin
 INSTALL_DIR := $(HOME)/.local/bin
 
+COMMIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_TIME  := $(shell date -u +%FT%TZ 2>/dev/null || echo unknown)
+LDFLAGS     := -ldflags "-X main.commitHash=$(COMMIT_HASH) -X main.buildTime=$(BUILD_TIME)"
+
 .PHONY: all build install clean test test-v cover
 
 all: build ## Build the default artifact
 
 build: ## Build the gwt binary
-	go build -o $(BUILD_DIR)/$(BINARY) ./cmd
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) ./cmd
 
 install: build ## Install gwt to ~/.local/bin
 	cp $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)

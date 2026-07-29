@@ -12,7 +12,11 @@ import (
 	"github.com/plinde/gwtui/internal/tui"
 )
 
-var version = "dev"
+var (
+	version    = "dev"
+	commitHash = "unknown"
+	buildTime  = "unknown"
+)
 
 func main() {
 	var orgArg string
@@ -24,7 +28,7 @@ func main() {
 		Use:          "gwtui [path]",
 		Short:        "Git Worktree TUI Manager",
 		Long:         "Interactive TUI for managing git worktrees with GitHub PR status enrichment.\n\nFrom a github.com/<org> root, gwtui loads direct child checkouts. From inside one of those repositories, it stays scoped to that repository while retaining org-aware data internally.",
-		Version:      version,
+		Version:      buildVersionString(),
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,7 +62,7 @@ func main() {
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
 				return cli.Print(scope.targetPath, scope.repository, resolvedShowRepos)
 			}
-			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository, resolvedShowRepos)
+			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository, resolvedShowRepos, buildVersionString())
 			if err != nil {
 				return err
 			}
@@ -98,6 +102,21 @@ func printShellInit(shell string) error {
 	default:
 		return fmt.Errorf("unsupported shell: %s (supported: zsh, bash)", shell)
 	}
+}
+
+// buildVersionString returns the version string for --version and the TUI help
+// screen. Set at build time via -ldflags, e.g.:
+//
+//	go build -ldflags "-X main.version=v1.0.0 -X main.commitHash=$(git rev-parse --short HEAD) -X main.buildTime=$(date -u +%FT%TZ)" .
+func buildVersionString() string {
+	s := version
+	if commitHash != "unknown" {
+		s += " (" + commitHash + ")"
+	}
+	if buildTime != "unknown" {
+		s += " " + buildTime
+	}
+	return s
 }
 
 const shellInitScript = `# gwtui shell integration
