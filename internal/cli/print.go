@@ -12,7 +12,7 @@ import (
 // then writes a plain-text table to stdout.
 // Errors are printed to stderr.
 func Print(repoPath, repository string) error {
-	rows, warnings, err := tui.LoadRows(repoPath)
+	rows, warnings, err := tui.LoadRows(repoPath, repository)
 	if err != nil {
 		return err
 	}

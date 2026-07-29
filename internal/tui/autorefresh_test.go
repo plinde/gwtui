@@ -36,14 +36,14 @@ func testModel() model {
 // ---------- scheduleAutoRefresh / doAutoRefresh ----------
 
 func TestScheduleAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
-	cmd := scheduleAutoRefresh()
+	cmd := scheduleAutoRefresh(1)
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from scheduleAutoRefresh")
 	}
 }
 
 func TestDoAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
-	cmd := doAutoRefresh("/tmp/fakerepo")
+	cmd := doAutoRefresh("/tmp/fakerepo", "", 1)
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from doAutoRefresh")
 	}
@@ -79,6 +79,42 @@ func TestAutoRefreshTickMsg_InOtherPhase(t *testing.T) {
 		if cmd == nil {
 			t.Errorf("phase %d: expected non-nil cmd (reschedule tick)", ph)
 		}
+	}
+}
+
+func TestAutoRefreshTickMsg_StaleGenerationIsIgnored(t *testing.T) {
+	m := testModel()
+	m.refreshGeneration = 2
+
+	updated, cmd := m.Update(autoRefreshTickMsg{generation: 1})
+	um := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("stale timer must not start or reschedule a refresh")
+	}
+	if um.refreshInFlight {
+		t.Fatal("stale timer marked refresh in flight")
+	}
+}
+
+func TestAutoRefreshTickMsg_AllowsOnlyOneInFlightRefresh(t *testing.T) {
+	m := testModel()
+	m.refreshGeneration = 3
+	tick := autoRefreshTickMsg{generation: 3}
+
+	updated, cmd := m.Update(tick)
+	um := updated.(model)
+	if cmd == nil || !um.refreshInFlight {
+		t.Fatal("current timer did not start refresh")
+	}
+
+	updated, duplicateCmd := um.Update(tick)
+	um = updated.(model)
+	if duplicateCmd != nil {
+		t.Fatal("duplicate timer started a concurrent refresh")
+	}
+	if !um.refreshInFlight {
+		t.Fatal("refresh unexpectedly stopped being in flight")
 	}
 }
 
@@ -209,6 +245,27 @@ func TestAutoRefreshDoneMsg_EmptyList(t *testing.T) {
 	}
 }
 
+func TestAutoRefreshDoneMsg_StaleGenerationDoesNotReplaceRows(t *testing.T) {
+	m := testModel()
+	m.refreshGeneration = 4
+	originalRows := len(m.rows)
+
+	updated, cmd := m.Update(autoRefreshDoneMsg{
+		generation: 3,
+		rows: []WorktreeRow{{
+			Worktree: git.Worktree{Path: "/stale", Branch: "stale"},
+		}},
+	})
+	um := updated.(model)
+
+	if cmd != nil {
+		t.Fatal("stale completion must not create another timer")
+	}
+	if len(um.rows) != originalRows {
+		t.Fatalf("stale completion replaced rows: got %d, want %d", len(um.rows), originalRows)
+	}
+}
+
 // ---------- handleLoadDone reschedules ----------
 
 func TestHandleLoadDone_ReschedulesAutoRefresh(t *testing.T) {
@@ -246,9 +303,9 @@ func TestHandleLoadDone_Error_ReschedulesAutoRefresh(t *testing.T) {
 	}
 }
 
-// ---------- Init includes auto-refresh ----------
+// ---------- Init starts loading; load completion owns the refresh timer ----------
 
-func TestInit_IncludesAutoRefresh(t *testing.T) {
+func TestInit_DoesNotScheduleCompetingAutoRefresh(t *testing.T) {
 	m := model{
 		repoPath: "/repo",
 		spinner:  spinner.New(),
@@ -258,8 +315,14 @@ func TestInit_IncludesAutoRefresh(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected non-nil cmd from Init()")
 	}
-	// Init returns tea.Batch of 3 commands (spinner.Tick, doLoad, scheduleAutoRefresh)
-	// We can't easily inspect the batch, but verify it's non-nil
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected tea.BatchMsg, got %T", msg)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("expected spinner + initial load only, got %d commands", len(batch))
+	}
 }
 
 // ---------- Done-screen countdown ----------
