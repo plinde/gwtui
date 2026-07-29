@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/plinde/gwtui/internal/cache"
 	"os"
 	"strings"
 
@@ -11,8 +12,8 @@ import (
 // Print loads worktree and PR data, scopes it to repository when provided,
 // then writes a plain-text table to stdout.
 // Errors are printed to stderr.
-func Print(repoPath, repository string) error {
-	rows, warnings, err := tui.LoadRows(repoPath)
+func Print(repoPath, repository string, c cache.Options) error {
+	rows, warnings, err := tui.LoadRowsCached(repoPath, c)
 	if err != nil {
 		return err
 	}

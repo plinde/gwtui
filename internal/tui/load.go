@@ -4,9 +4,19 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/plinde/gwtui/internal/cache"
 	"github.com/plinde/gwtui/internal/git"
 	gh "github.com/plinde/gwtui/internal/github"
 )
+
+// repoFetchConcurrency bounds how many repositories are queried at once.
+//
+// This was unbounded: one goroutine per repository, every one firing a `gh pr
+// list` simultaneously. That is how the account's GraphQL budget was observed
+// at 5004/5000 — you only exceed a hard cap when requests are already in flight
+// together when it is reached. Bounding the fan-out also keeps the machine from
+// spawning seventeen `gh` processes at once.
+const repoFetchConcurrency = 6
 
 // LoadWarning describes non-fatal data that could not be loaded for a repo.
 type LoadWarning struct {
@@ -14,8 +24,16 @@ type LoadWarning struct {
 	Err  error
 }
 
-// LoadRows loads worktree and PR data for either a single repo or an org root.
+// LoadRows loads worktree and PR data for either a single repo or an org root,
+// using the default cache policy.
 func LoadRows(targetPath string) ([]WorktreeRow, []LoadWarning, error) {
+	return LoadRowsCached(targetPath, cache.Options{TTL: cache.DefaultTTL})
+}
+
+// LoadRowsCached is LoadRows with an explicit cache policy. Remote PR data is
+// read through the cache; local worktree and git state are always recomputed,
+// so the view stays live without spending API budget.
+func LoadRowsCached(targetPath string, c cache.Options) ([]WorktreeRow, []LoadWarning, error) {
 	target, err := git.ResolveTarget(targetPath)
 	if err != nil {
 		return nil, nil, err
@@ -29,13 +47,16 @@ func LoadRows(targetPath string) ([]WorktreeRow, []LoadWarning, error) {
 	}
 
 	resultCh := make(chan result, len(target.Repositories))
+	sem := make(chan struct{}, repoFetchConcurrency)
 	var wg sync.WaitGroup
 
 	for i, repo := range target.Repositories {
 		wg.Add(1)
 		go func(index int, repo git.Repository) {
 			defer wg.Done()
-			rows, warnings, err := loadRepoRows(repo, target.IsOrg)
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			rows, warnings, err := loadRepoRows(repo, target.IsOrg, c)
 			resultCh <- result{
 				index:    index,
 				rows:     rows,
@@ -65,7 +86,7 @@ func LoadRows(targetPath string) ([]WorktreeRow, []LoadWarning, error) {
 	return rows, warnings, nil
 }
 
-func loadRepoRows(repo git.Repository, showRepoName bool) ([]WorktreeRow, []LoadWarning, error) {
+func loadRepoRows(repo git.Repository, showRepoName bool, c cache.Options) ([]WorktreeRow, []LoadWarning, error) {
 	wts, err := git.List(repo.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: failed to list worktrees: %w", repo.Name, err)
@@ -78,7 +99,7 @@ func loadRepoRows(repo git.Repository, showRepoName bool) ([]WorktreeRow, []Load
 		}
 	}
 
-	prs, err := gh.PRsByBranch(repo.Path)
+	prs, err := gh.PRsByBranchCached(repo.Path, repo.Path, c)
 	var warnings []LoadWarning
 	if err != nil {
 		warnings = append(warnings, LoadWarning{Repo: repo, Err: err})

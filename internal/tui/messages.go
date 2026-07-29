@@ -5,10 +5,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/plinde/gwtui/internal/cache"
 	"github.com/plinde/gwtui/internal/git"
 	gh "github.com/plinde/gwtui/internal/github"
 )
 
+// autoRefreshInterval is the UI tick. It stays short because worktree and git
+// state are local and free to recompute; remote PR data behind this tick is
+// read through the TTL cache, so a fast tick no longer means fast API spend.
 const autoRefreshInterval = 15 * time.Second
 
 // loadDoneMsg is sent when worktree + PR data loading completes.
@@ -25,9 +29,9 @@ type cleanupDoneMsg struct {
 }
 
 // doLoad fetches worktrees and PR data concurrently.
-func doLoad(repoPath string) tea.Cmd {
+func doLoad(repoPath string, c cache.Options) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath)
+		rows, _, err := LoadRowsCached(repoPath, c)
 		return loadDoneMsg{rows: rows, err: err}
 	}
 }
@@ -51,9 +55,9 @@ func scheduleAutoRefresh() tea.Cmd {
 }
 
 // doAutoRefresh performs the same loading as doLoad but returns autoRefreshDoneMsg.
-func doAutoRefresh(repoPath string) tea.Cmd {
+func doAutoRefresh(repoPath string, c cache.Options) tea.Cmd {
 	return func() tea.Msg {
-		rows, _, err := LoadRows(repoPath)
+		rows, _, err := LoadRowsCached(repoPath, c)
 		return autoRefreshDoneMsg{rows: rows, err: err}
 	}
 }

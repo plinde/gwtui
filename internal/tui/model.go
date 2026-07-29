@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/plinde/gwtui/internal/cache"
 	"github.com/plinde/gwtui/internal/git"
 )
 
@@ -30,6 +31,7 @@ type model struct {
 	phase       phase
 	prevPhase   phase // for returning from help
 	repoPath    string
+	cacheOpts   cache.Options
 	displayPath string
 	scopeRepo   string
 	keys        keyMap
@@ -62,7 +64,19 @@ type model struct {
 
 // Run launches the TUI. Returns the selected worktree path if the user
 // pressed enter to jump, or empty string on normal quit.
-func Run(repoPath, scopePath, scopeRepo string) (string, error) {
+// forcedCache is the policy for an explicit user-initiated refresh: bypass the
+// freshness check so `r` always shows current data, but still write through so
+// the next auto-refresh reads the fresh value rather than re-fetching.
+//
+// The auto-refresh deliberately does NOT force. That distinction is the whole
+// saving: the timer reads through the cache, the human bypasses it.
+func (m model) forcedCache() cache.Options {
+	c := m.cacheOpts
+	c.Force = true
+	return c
+}
+
+func Run(repoPath, scopePath, scopeRepo string, c cache.Options) (string, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
@@ -70,6 +84,7 @@ func Run(repoPath, scopePath, scopeRepo string) (string, error) {
 	m := model{
 		phase:       phaseLoad,
 		repoPath:    repoPath,
+		cacheOpts:   c,
 		displayPath: scopePath,
 		scopeRepo:   strings.TrimSpace(scopeRepo),
 		keys:        defaultKeyMap(),
@@ -101,7 +116,7 @@ func newFilterInput(value string) textinput.Model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath), scheduleAutoRefresh())
+	return tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.forcedCache()), scheduleAutoRefresh())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -194,7 +209,7 @@ func (m model) handleLoadDone(msg loadDoneMsg) (tea.Model, tea.Cmd) {
 
 func (m model) handleAutoRefreshTick() (tea.Model, tea.Cmd) {
 	if m.phase == phaseList {
-		return m, doAutoRefresh(m.repoPath)
+		return m, doAutoRefresh(m.repoPath, m.cacheOpts)
 	}
 	// Not in list phase — reschedule without loading
 	return m, scheduleAutoRefresh()
@@ -319,7 +334,7 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, m.keys.Refresh):
 			m.phase = phaseLoad
-			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+			return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.forcedCache()))
 		case key.Matches(msg, m.keys.SortNext):
 			m = m.advanceSort(nextSortColumn)
 		case key.Matches(msg, m.keys.SortPrev):
@@ -547,7 +562,7 @@ func (m model) returnToList() (tea.Model, tea.Cmd) {
 	m.loadErr = nil
 	m.doneCountdown = 0
 	m.phase = phaseLoad
-	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath))
+	return m, tea.Batch(m.spinner.Tick, doLoad(m.repoPath, m.forcedCache()))
 }
 
 func (m model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -143,6 +143,45 @@ repo:infra merged            # infrastructure rows whose state/PR fields match "
 a normal bare substring search for compatibility. Filter input supports
 left/right, home/end, insertion at the cursor, backspace, and delete.
 
+## Response caching (avoiding GitHub rate limits)
+
+`gh pr list` is a **GraphQL** call, and GitHub's GraphQL budget is **5000/hour shared across
+every tool, machine and token on the account** — not per-process. gwtui previously re-fetched
+every repository live on each 15-second tick, which measured at roughly **11,000 calls/hour**
+and could exhaust the entire account budget in about twenty minutes.
+
+PR results are now cached as TTL'd JSON under `~/.config/gwtui/cache/`:
+
+- **Fresh read** — within `--cache-ttl` (default 15m) the cached value is reused with **no API
+  call**. The 15s auto-refresh reads through the cache, so the view still updates without
+  spending budget.
+- **Serve-stale-on-error** — if a live call fails (most importantly a `429`), the last-known
+  value is served instead of blanking the PR column.
+- **Manual refresh (`r`) forces a live call**, bypassing the TTL, and writes through. The timer
+  never forces; only you do.
+- `--no-cache` opts out entirely (no read, no write, no stale fallback).
+
+Local worktree and git state are **never** cached — they are cheap, local, and still recomputed
+on every tick, so the view stays live.
+
+Measured on a 17-repo org root:
+
+| Run | `gh` calls |
+|-----|-----------|
+| cold cache | 17 |
+| warm cache | 1 |
+| `--no-cache` | 17 |
+
+Two supporting fixes landed with it:
+
+- **`--limit` 200 → 50.** GitHub caps a GraphQL page at 100 nodes, so 200 forced *two* requests
+  per repository on every refresh — double the cost for data that was mostly discarded, since
+  only PRs whose head branch matches a live worktree are displayed.
+- **Bounded fan-out.** Repository loading spawned one goroutine per repo with no limit, firing
+  every `gh` call simultaneously. That is how the budget was observed at `5004/5000` — a hard
+  cap is only exceeded when requests are already in flight together when it is reached. Now
+  capped at 6 concurrent.
+
 ## PR State Legend
 
 | State | Color | Cleanable | Description |

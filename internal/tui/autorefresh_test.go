@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"github.com/plinde/gwtui/internal/cache"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -43,7 +44,7 @@ func TestScheduleAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
 }
 
 func TestDoAutoRefresh_ReturnsNonNilCmd(t *testing.T) {
-	cmd := doAutoRefresh("/tmp/fakerepo")
+	cmd := doAutoRefresh("/tmp/fakerepo", cache.Options{Disabled: true})
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd from doAutoRefresh")
 	}

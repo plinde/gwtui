@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
+	"github.com/plinde/gwtui/internal/cache"
 	"github.com/plinde/gwtui/internal/cli"
 	"github.com/plinde/gwtui/internal/tui"
 )
@@ -17,6 +19,8 @@ func main() {
 	var orgArg string
 	var repoArg string
 	var noTUI bool
+	var cacheTTL time.Duration
+	var noCache bool
 
 	rootCmd := &cobra.Command{
 		Use:          "gwtui [path]",
@@ -38,10 +42,11 @@ func main() {
 			if err != nil {
 				return err
 			}
+			cacheOpts := cache.Options{TTL: cacheTTL, Disabled: noCache}
 			if noTUI || !isatty.IsTerminal(os.Stdout.Fd()) {
-				return cli.Print(scope.targetPath, scope.repository)
+				return cli.Print(scope.targetPath, scope.repository, cacheOpts)
 			}
-			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository)
+			jumpPath, err := tui.Run(scope.targetPath, scope.displayPath, scope.repository, cacheOpts)
 			if err != nil {
 				return err
 			}
@@ -55,6 +60,8 @@ func main() {
 	rootCmd.Flags().StringVar(&orgArg, "org", "", "GitHub org name or path to an org root")
 	rootCmd.Flags().StringVar(&repoArg, "repo", "", "repository scope with --org; otherwise repository/org-root path (legacy)")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "print worktree status to stdout (non-interactive)")
+	rootCmd.Flags().DurationVar(&cacheTTL, "cache-ttl", cache.DefaultTTL, "reuse cached gh PR data younger than this (avoids GitHub rate limits); 0 forces a live call but still writes through")
+	rootCmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass the PR response cache entirely (no read, no write, no stale fallback)")
 
 	initCmd := &cobra.Command{
 		Use:       "init [shell]",
