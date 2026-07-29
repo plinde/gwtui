@@ -85,7 +85,7 @@ func TestUncachedConfigurationWouldBlowTheBudget(t *testing.T) {
 		t.Errorf("the pre-fix configuration projects %d/hr; it exhausted the whole %d/hr pool in ~20 minutes, so the model is wrong",
 			old, graphQLBudgetPerHour)
 	}
-	t.Logf("pre-fix configuration projected %d requests/hour — %.0fx the account pool", old, float64(old)/graphQLBudgetPerHour)
+	t.Logf("pre-fix configuration projected %d requests/hour — %.1fx the account pool, and %.0fx this tool's share", old, float64(old)/graphQLBudgetPerHour, float64(old)/toolBudgetShare)
 }
 
 // Each individual knob must stay in its safe range, so a regression names the
