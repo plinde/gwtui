@@ -32,8 +32,9 @@ type model struct {
 	repoPath    string
 	displayPath string
 	scopeRepo   string
-	isOrgRoot   bool // true when launched from an org root
-	showRepos   bool // true when main checkouts should be visible in orgroot mode
+	isOrgRoot   bool   // true when launched from an org root
+	showRepos   bool   // true when main checkouts should be visible in orgroot mode
+	buildInfo   string // version, commit, build time for help screen
 	keys        keyMap
 	spinner     spinner.Model
 
@@ -67,7 +68,8 @@ type model struct {
 
 // Run launches the TUI. Returns the selected worktree path if the user
 // pressed enter to jump, or empty string on normal quit.
-func Run(repoPath, scopePath, scopeRepo string, showRepos bool) (string, error) {
+// buildInfo is the formatted version/commit/build string for the help screen.
+func Run(repoPath, scopePath, scopeRepo string, showRepos bool, buildInfo string) (string, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
@@ -78,6 +80,7 @@ func Run(repoPath, scopePath, scopeRepo string, showRepos bool) (string, error) 
 		displayPath: scopePath,
 		scopeRepo:   strings.TrimSpace(scopeRepo),
 		showRepos:   showRepos,
+		buildInfo:   buildInfo,
 		keys:        defaultKeyMap(),
 		spinner:     s,
 		sortCol:     SortState,
@@ -872,6 +875,10 @@ func (m model) viewHelp() string {
 	b.WriteString("\n")
 
 	b.WriteString("  " + helpStyle.Render("[?] close help  [q] quit") + "\n")
+	if m.buildInfo != "" {
+		b.WriteString("\n")
+		b.WriteString("  " + dimStyle.Render(m.buildInfo) + "\n")
+	}
 
 	return b.String()
 }
