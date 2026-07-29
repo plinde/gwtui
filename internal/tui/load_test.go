@@ -20,7 +20,7 @@ func TestLoadRows_OrgRootAnnotatesRepositoryNames(t *testing.T) {
 	initGitRepo(t, api)
 	initGitRepo(t, web)
 
-	rows, _, err := LoadRows(root, "")
+	rows, _, _, err := LoadRows(root, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,7 +75,7 @@ printf '%s\n' '{"data":{"r0":{"b0":{"nodes":[]}},"rateLimit":{"cost":1}}}'
 	t.Setenv("GWTUI_GRAPHQL_REQUEST", requestPath)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	rows, warnings, err := LoadRows(root, "api")
+	rows, warnings, _, err := LoadRows(root, "api")
 	if err != nil {
 		t.Fatal(err)
 	}
